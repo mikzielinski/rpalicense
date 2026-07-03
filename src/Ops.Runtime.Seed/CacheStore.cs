@@ -8,7 +8,9 @@ internal sealed class CacheStore
 
     internal CacheStore(string? customPath = null)
     {
-        _path = customPath ?? BuildPath();
+        _path = !string.IsNullOrWhiteSpace(customPath)
+            ? customPath
+            : BuildPath();
     }
 
     internal CachedRecord? Read()
