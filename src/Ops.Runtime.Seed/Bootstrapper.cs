@@ -385,7 +385,8 @@ public static class Bootstrapper
             {
                 try
                 {
-                    Initialize(token);
+                    var machine = Environment.GetEnvironmentVariable("FLOW_RUNTIME_MACHINE");
+                    Initialize(token, string.IsNullOrWhiteSpace(machine) ? null : machine);
                 }
                 catch
                 {
