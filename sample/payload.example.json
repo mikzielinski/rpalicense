@@ -1,0 +1,5 @@
+{
+  "apiEndpoint": "https://api.example.com/v1",
+  "connectionString": "Server=sql01;Database=robotics;User Id=robot;Password=replace-me;",
+  "agentSystemPrompt": "Jestes agentem workflow. Odpowiadasz tylko na temat procesu."
+}

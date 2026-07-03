@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ops Runtime Console</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>Ops Runtime Console</h1>
+    <p>Panel do zarzadzania katalogiem, testow polaczen i obslugi JWT na GitHub Pages.</p>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>1) Katalog wpisow</h2>
+      <div class="actions">
+        <button id="loadSampleCatalog" type="button">Wczytaj przyklad</button>
+        <button id="formatCatalog" type="button">Formatuj JSON</button>
+        <button id="validateCatalog" type="button">Waliduj</button>
+        <button id="downloadCatalog" type="button">Pobierz catalog.json</button>
+      </div>
+      <textarea id="catalogInput" rows="14" spellcheck="false"></textarea>
+      <p id="catalogStatus" class="status"></p>
+      <div id="entriesSummary" class="summary"></div>
+      <div class="divider"></div>
+      <h3>Operacje na licencjach</h3>
+      <div class="form-grid">
+        <label>tokenId do zmiany
+          <input id="opTokenId" type="text" placeholder="RT-2026-CLIENT-001">
+        </label>
+        <label>nowe validToUtc
+          <input id="opValidToUtc" type="datetime-local">
+        </label>
+      </div>
+      <div class="actions">
+        <button id="disableToken" type="button">Zdalne odciecie (enabled=false)</button>
+        <button id="renewToken" type="button">Odnowienie (enabled=true + validTo)</button>
+      </div>
+      <label>RSA private key JWK (do przeliczenia pola seal po zmianach)
+        <textarea id="sealJwk" rows="5" spellcheck="false" placeholder='{"kty":"RSA","n":"...","e":"...","d":"..."}'></textarea>
+      </label>
+      <div class="actions">
+        <button id="resealEntries" type="button">Przelicz seal dla wszystkich wpisow</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>tokenId</th>
+              <th>owner</th>
+              <th>validToUtc</th>
+              <th>enabled</th>
+              <th>hosts</th>
+              <th>status</th>
+            </tr>
+          </thead>
+          <tbody id="entriesTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2) Test polaczenia runtime</h2>
+      <div class="form-grid">
+        <label>tokenId
+          <input id="simTokenId" type="text" placeholder="RT-2026-CLIENT-001">
+        </label>
+        <label>machine
+          <input id="simMachine" type="text" placeholder="ROBOT01">
+        </label>
+        <label>czas UTC
+          <input id="simNow" type="datetime-local">
+        </label>
+      </div>
+      <button id="simulateCheck" type="button">Sprawdz</button>
+      <pre id="simResult"></pre>
+    </section>
+
+    <section class="card">
+      <h2>3) JWT envelope (seed.jwt)</h2>
+      <div class="form-grid">
+        <label>issuer (iss)
+          <input id="jwtIssuer" type="text" value="https://example.github.io">
+        </label>
+        <label>audience (aud)
+          <input id="jwtAudience" type="text" value="ops-runtime-seed">
+        </label>
+        <label>exp UTC
+          <input id="jwtExpUtc" type="datetime-local">
+        </label>
+        <label>JWT signing key (HS256)
+          <input id="jwtSigningKey" type="password" placeholder="dlugi losowy sekret">
+        </label>
+        <label>Envelope pepper
+          <input id="jwtEnvelopePepper" type="password" placeholder="dlugi losowy pepper">
+        </label>
+      </div>
+      <div class="actions">
+        <button id="buildJwt" type="button">Generuj seed.jwt z katalogu</button>
+        <button id="inspectJwt" type="button">Analizuj seed.jwt</button>
+        <button id="downloadJwt" type="button">Pobierz seed.jwt</button>
+      </div>
+      <textarea id="jwtInput" rows="7" spellcheck="false" placeholder="tu seed.jwt"></textarea>
+      <pre id="jwtResult"></pre>
+    </section>
+
+    <section class="card">
+      <h2>4) Diagnostyka polaczenia do GitHub Pages</h2>
+      <div class="form-grid">
+        <label>URL pliku JWT
+          <input id="remoteUrl" type="url" placeholder="https://twoja-domena.pl/assets/seed.jwt">
+        </label>
+        <label>Bearer token (opcjonalnie)
+          <input id="remoteBearer" type="password" placeholder="tylko dla prywatnego endpointu">
+        </label>
+      </div>
+      <div class="actions">
+        <button id="probeRemote" type="button">Pobierz i sprawdz</button>
+      </div>
+      <pre id="remoteResult"></pre>
+    </section>
+
+    <section class="card">
+      <h2>5) Publikacja seed.jwt do GitHub</h2>
+      <div class="form-grid">
+        <label>repo owner
+          <input id="ghOwner" type="text" placeholder="twoj-login">
+        </label>
+        <label>repo name
+          <input id="ghRepo" type="text" placeholder="twoje-repo">
+        </label>
+        <label>branch
+          <input id="ghBranch" type="text" value="main">
+        </label>
+        <label>path (plik JWT)
+          <input id="ghPath" type="text" value="assets/seed.jwt">
+        </label>
+        <label>GitHub PAT (repo contents:write)
+          <input id="ghToken" type="password" placeholder="ghp_...">
+        </label>
+        <label>commit message
+          <input id="ghMessage" type="text" value="Update seed.jwt">
+        </label>
+      </div>
+      <div class="actions">
+        <button id="publishJwt" type="button">Opublikuj seed.jwt do repo</button>
+      </div>
+      <pre id="ghResult"></pre>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Uwaga: klucze i sekrety sa przetwarzane lokalnie w przegladarce. Nie hostuj panelu publicznie z aktywnymi sekretami.</p>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>

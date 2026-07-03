@@ -1,0 +1,18 @@
+{
+  "entries": [
+    {
+      "tokenId": "RT-2026-CLIENT-001",
+      "owner": "Klient Sp. z o.o.",
+      "validToUtc": "2026-12-31T23:59:59Z",
+      "enabled": true,
+      "hosts": [
+        "ROBOT01",
+        "ROBOT02"
+      ],
+      "blob": "BASE64_CIPHERTEXT",
+      "nonce": "BASE64_NONCE",
+      "tag": "BASE64_TAG",
+      "seal": "BASE64_RSA_SIGNATURE"
+    }
+  ]
+}
