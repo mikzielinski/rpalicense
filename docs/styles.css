@@ -1,0 +1,179 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --card: #171a21;
+  --line: #2a3040;
+  --text: #e8ebf2;
+  --muted: #adb6ca;
+  --good: #3ecf8e;
+  --warn: #f3be4f;
+  --bad: #f26d6d;
+  --accent: #73a7ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-header,
+.app-footer {
+  padding: 20px 24px;
+}
+
+.app-header h1 {
+  margin: 0 0 8px;
+  font-size: 1.4rem;
+}
+
+.app-header p,
+.app-footer p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  padding: 0 24px 24px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.card h3 {
+  margin: 10px 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.divider {
+  border-top: 1px solid var(--line);
+  margin: 12px 0;
+}
+
+textarea,
+input,
+button {
+  font: inherit;
+}
+
+textarea,
+input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #0f131c;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+button {
+  border: 1px solid #3a4a73;
+  background: #1d2a49;
+  color: #d9e4ff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #6589d8;
+}
+
+.form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 10px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.status,
+.summary {
+  color: var(--muted);
+  margin: 6px 0 10px;
+  font-size: 0.9rem;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 720px;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 0.87rem;
+}
+
+th {
+  color: var(--muted);
+}
+
+tbody tr:hover {
+  background: #131a27;
+}
+
+pre {
+  margin: 10px 0 0;
+  background: #0f131c;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+  max-height: 260px;
+}
+
+.ok {
+  color: var(--good);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.bad {
+  color: var(--bad);
+}

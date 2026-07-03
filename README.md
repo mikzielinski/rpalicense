@@ -1,19 +1,26 @@
 # Ops.Runtime.Seed
 
-Neutralna biblioteka do bootstrapu runtime dla UiPath:
-- pobieranie zaszyfrowanego katalogu opakowanego w JWT (JWS + encrypted payload),
-- podpis RSA (`seal`) żeby klient nie dopisał sobie wpisu,
-- payload szyfrowany AES-GCM zależny od `tokenId + pepper`,
-- cache offline z grace period (7 dni),
-- autoinit przez zmienną środowiskową (`FLOW_RUNTIME_TOKEN` lub `APP_BOOT_TOKEN`).
+Neutralna biblioteka bootstrapu runtime dla UiPath:
+- pobiera zaszyfrowany katalog opakowany w JWT (JWS + encrypted payload),
+- weryfikuje podpis wpisu (`seal`, RSA),
+- odszyfrowuje payload klienta (AES-GCM, klucz zależny od `tokenId + pepper`),
+- ma cache offline z grace period,
+- ma status walidacji (`Bootstrapper.LastCheck`) do logowania w bocie.
 
 ## Struktura
 
-- `src/Ops.Runtime.Seed` - biblioteka .NET do spakowania jako `.nupkg`
-- `keygen` - narzędzie do:
-  - generowania pary kluczy RSA,
-  - tworzenia podpisanego wpisu do `catalog.json`,
-  - opakowania katalogu do JWT (`wrapjwt`).
+- `src/Ops.Runtime.Seed` - biblioteka .NET do paczki `.nupkg`
+- `keygen` - CLI do:
+  - `newkeys` (RSA keypair),
+  - `issue` (podpisany wpis katalogu),
+  - `wrapjwt` (opakowanie katalogu do `seed.jwt`),
+  - `exportjwk` (konwersja klucza prywatnego do JWK dla panelu WWW)
+- `docs` - panel GitHub Pages do operacyjnego zarządzania:
+  - walidacja katalogu, symulacja token/machine,
+  - zdalne odcięcie/odnowienie,
+  - reseal wpisów,
+  - generowanie/analiza `seed.jwt`,
+  - publikacja `seed.jwt` do repo przez GitHub API.
 
 ## 1) Build biblioteki
 
@@ -23,7 +30,7 @@ dotnet build -c Release
 dotnet pack -c Release
 ```
 
-## 2) Generowanie kluczy podpisu
+## 2) Klucze RSA
 
 ```bash
 cd keygen
@@ -32,11 +39,11 @@ dotnet run -- newkeys ./keys
 
 Wynik:
 - `keys/seal.private.pem` (tylko u Ciebie),
-- `keys/seal.public.pem` (wklejasz do `Bootstrapper.cs` -> `PublicSealKeyPem`).
+- `keys/seal.public.pem` (wklej do `Bootstrapper.cs` -> `PublicSealKeyPem`).
 
-## 3) Wystawienie wpisu katalogu (wewnętrzny JSON)
+## 3) Wystawienie wpisu katalogu (`catalog.json`)
 
-Przykładowy payload (`payload.json`):
+Przykładowy payload:
 
 ```json
 {
@@ -52,28 +59,27 @@ Generowanie wpisu:
 dotnet run -- issue ./keys/seal.private.pem "TWOJ-DLUGI-PEPPER" "RT-2026-CLIENT-001" "Klient Sp. z o.o." "2026-12-31T23:59:59Z" "ROBOT01,ROBOT02" ./payload.json
 ```
 
-Komenda zwraca pojedynczy obiekt JSON - wklej go do:
+Wklej wynik do:
 
 ```json
 {
   "entries": [
-    { ...wygenerowany wpis... }
+    { "...": "..." }
   ]
 }
 ```
 
-## 4) Opakowanie katalogu do JWT (do hostowania na GitHub Pages)
+## 4) Opakowanie katalogu do JWT (`seed.jwt`)
 
 ```bash
 dotnet run -- wrapjwt ./catalog.json "TWOJ-DLUGI-JWT-SIGNING-KEY" "TWOJ-DLUGI-ENVELOPE-PEPPER" "https://twojadomena.pl" "ops-runtime-seed" "2026-12-31T23:59:59Z" > seed.jwt
 ```
 
-Plik `seed.jwt` hostujesz jako statyczny plik na GitHub Pages / custom domain.
-W ruchu sieciowym widać token JWT, ale właściwy katalog jest zaszyfrowany (`blob`).
+`seed.jwt` hostuj jako statyczny plik na GitHub Pages / custom domain.
 
-## 5) UiPath (użycie)
+## 5) UiPath (użycie w bocie)
 
-1. Dodaj paczkę `.nupkg` do feedu.
+1. Dodaj `.nupkg` do feedu i zainstaluj paczkę.
 2. Token (`RT-...`) trzymaj jako Asset w Orchestratorze.
 3. Na starcie procesu:
 
@@ -81,24 +87,70 @@ W ruchu sieciowym widać token JWT, ale właściwy katalog jest zaszyfrowany (`b
 var profile = Ops.Runtime.Seed.Bootstrapper.Initialize(runtimeTokenFromAsset);
 ```
 
-4. Używaj wartości z `profile` w procesie (`ApiEndpoint`, `ConnectionString`, `AgentSystemPrompt`).
+4. Używaj danych z `profile` w realnym flow.
+5. Loguj stan połączenia/walidacji:
 
-## 6) Autoinit
+```csharp
+var check = Ops.Runtime.Seed.Bootstrapper.LastCheck;
+// check.Success, check.UsedCache, check.Code, check.CheckedAtUtc, check.SourceUrl
+```
 
-Jeśli ustawisz zmienną środowiskową:
-- `FLOW_RUNTIME_TOKEN` albo `APP_BOOT_TOKEN`,
+6. Wariant bez wyjątku:
 
-to biblioteka spróbuje sama wykonać inicjalizację przy załadowaniu assembly.
+```csharp
+if (!Ops.Runtime.Seed.Bootstrapper.TryInitialize(runtimeTokenFromAsset, out var _))
+{
+    var check = Ops.Runtime.Seed.Bootstrapper.LastCheck;
+    throw new Exception($"Runtime gate failed: {check.Code}");
+}
+```
+
+7. Dla długich procesów: wywołuj `TryInitialize(...)` cyklicznie (np. co 15-30 min), aby odcięcie/odnowienie zadziałało bez restartu bota.
+
+## 6) Zdalne odcięcie / odnowienie licencji
+
+Mechanizm jest natywnie wspierany:
+- odcięcie: `enabled=false`,
+- odnowienie: `enabled=true` + nowe `validToUtc`.
+
+Po zmianie wpisu:
+1. reseal (`seal`) RSA,
+2. wygeneruj nowy `seed.jwt`,
+3. opublikuj `seed.jwt` na Pages.
+
+Panel `docs/` prowadzi ten flow krok po kroku.
+
+## 7) Panel GitHub Pages (operacyjny)
+
+1. Włącz GitHub Pages z folderu `docs`.
+2. Otwórz opublikowane `index.html`.
+3. Wykonuj operacje:
+   - `Zdalne odciecie`,
+   - `Odnowienie`,
+   - `Przelicz seal`,
+   - `Generuj seed.jwt`,
+   - `Opublikuj seed.jwt do repo`.
+
+Konwersja PEM -> JWK dla panelu:
+
+```bash
+cd keygen
+dotnet run -- exportjwk ./keys/seal.private.pem
+```
+
+## 8) Konfiguracja stałych w bibliotece
+
+W `Bootstrapper.cs` podmień:
+- `SourceUrl`
+- `SourceToken` (opcjonalnie)
+- `Pepper`
+- `EnvelopePepper`
+- `EnvelopeSigningKey`
+- `EnvelopeIssuer`
+- `EnvelopeAudience`
+- `PublicSealKeyPem`
 
 ## Ważne
 
-- Podmień stałe w `Bootstrapper.cs` przed publikacją:
-  - `SourceUrl`
-  - `SourceToken` (jeśli prywatne repo)
-  - `Pepper`
-  - `EnvelopePepper`
-  - `EnvelopeSigningKey`
-  - `EnvelopeIssuer`
-  - `EnvelopeAudience`
-  - `PublicSealKeyPem`
-- Dla obfuskacji użyj ConfuserEx lub Dotfuscatora dopiero na finalnej DLL i zawsze testuj po obfuskacji w środowisku UiPath.
+- Panel przetwarza sekrety lokalnie w przeglądarce, ale jeśli używasz PAT do publikacji, traktuj stronę jak narzędzie administracyjne i nie zostawiaj tokenu w przeglądarce.
+- Obfuskację (ConfuserEx / Dotfuscator) rób dopiero na finalnej DLL i zawsze testuj po obfuskacji w środowisku UiPath.

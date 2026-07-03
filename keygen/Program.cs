@@ -19,6 +19,8 @@ try
             return RunIssue(args);
         case "wrapjwt":
             return RunWrapJwt(args);
+        case "exportjwk":
+            return RunExportJwk(args);
         default:
             PrintHelp();
             return 1;
@@ -171,6 +173,41 @@ static int RunWrapJwt(string[] args)
     return 0;
 }
 
+static int RunExportJwk(string[] args)
+{
+    if (args.Length != 2)
+    {
+        Console.WriteLine("usage: exportjwk <privateKeyPemPath>");
+        return 1;
+    }
+
+    var privateKeyPemPath = args[1];
+    var pem = File.ReadAllText(privateKeyPemPath);
+    using var rsa = RSA.Create();
+    rsa.ImportFromPem(pem);
+    var p = rsa.ExportParameters(true);
+
+    var jwk = new Dictionary<string, object?>
+    {
+        ["kty"] = "RSA",
+        ["alg"] = "RS256",
+        ["use"] = "sig",
+        ["key_ops"] = new[] { "sign" },
+        ["n"] = ToBase64Url(p.Modulus),
+        ["e"] = ToBase64Url(p.Exponent),
+        ["d"] = ToBase64Url(p.D),
+        ["p"] = ToBase64Url(p.P),
+        ["q"] = ToBase64Url(p.Q),
+        ["dp"] = ToBase64Url(p.DP),
+        ["dq"] = ToBase64Url(p.DQ),
+        ["qi"] = ToBase64Url(p.InverseQ),
+        ["ext"] = false
+    };
+
+    Console.WriteLine(JsonSerializer.Serialize(jwk, JsonOptions.Instance));
+    return 0;
+}
+
 static string Canonical(CatalogEntry entry)
 {
     var hosts = entry.Hosts.Count == 0
@@ -222,6 +259,16 @@ static string Base64UrlEncode(byte[] data)
         .Replace('/', '_');
 }
 
+static string ToBase64Url(byte[]? data)
+{
+    if (data is null || data.Length == 0)
+    {
+        return string.Empty;
+    }
+
+    return Base64UrlEncode(data);
+}
+
 static string SignHs256(string message, string signingKey)
 {
     using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(signingKey));
@@ -235,6 +282,7 @@ static void PrintHelp()
     Console.WriteLine("  newkeys <outputDir>");
     Console.WriteLine("  issue <privateKeyPemPath> <pepper> <tokenId> <owner> <validToUtc> <hostsCsv> <payloadJsonPath>");
     Console.WriteLine("  wrapjwt <catalogJsonPath> <jwtSigningKey> <envelopePepper> <issuer> <audience> <expUtc>");
+    Console.WriteLine("  exportjwk <privateKeyPemPath>");
 }
 
 internal sealed class CatalogEntry

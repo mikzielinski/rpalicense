@@ -14,6 +14,15 @@ public static class Bootstrapper
 
     private static readonly object Gate = new();
     private static RuntimeProfile? _current;
+    private static ValidationSnapshot _lastCheck = new()
+    {
+        Success = false,
+        UsedCache = false,
+        SourceUrl = SourceUrl,
+        CheckedAtUtc = DateTimeOffset.MinValue,
+        Code = "boot-0x00",
+        Notes = "not-initialized"
+    };
 
     // Własne wartości podmień przed publikacją biblioteki.
     private const string SourceUrl = "https://example.github.io/assets/seed.jwt";
@@ -39,6 +48,17 @@ REPLACE_WITH_RSA_PUBLIC_KEY
             lock (Gate)
             {
                 return _current ?? throw new InvalidOperationException("boot-0x00");
+            }
+        }
+    }
+
+    public static ValidationSnapshot LastCheck
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return _lastCheck;
             }
         }
     }
@@ -70,24 +90,67 @@ REPLACE_WITH_RSA_PUBLIC_KEY
             lock (Gate)
             {
                 _current = profile;
+                _lastCheck = NewSnapshot(
+                    success: true,
+                    usedCache: false,
+                    tokenId: runtimeToken,
+                    machine: machine,
+                    code: "boot-ok-remote",
+                    notes: "remote-validated");
             }
 
             return profile;
         }
-        catch when (TryReadGraceCache(cache, tokenHash, machine, key, out var cached))
+        catch (Exception ex) when (TryReadGraceCache(cache, tokenHash, machine, key, out var cached))
         {
             lock (Gate)
             {
                 _current = cached;
+                _lastCheck = NewSnapshot(
+                    success: true,
+                    usedCache: true,
+                    tokenId: runtimeToken,
+                    machine: machine,
+                    code: "boot-ok-cache",
+                    notes: $"cache-fallback-after:{ExtractCode(ex)}");
             }
 
             return cached;
+        }
+        catch (Exception ex)
+        {
+            lock (Gate)
+            {
+                _lastCheck = NewSnapshot(
+                    success: false,
+                    usedCache: false,
+                    tokenId: runtimeToken,
+                    machine: machine,
+                    code: ExtractCode(ex),
+                    notes: "validation-failed");
+            }
+
+            throw;
         }
     }
 
     public static RuntimeProfile Initialize(string runtimeToken, string? machineAlias = null)
     {
         return InitializeAsync(runtimeToken, machineAlias).GetAwaiter().GetResult();
+    }
+
+    public static bool TryInitialize(string runtimeToken, out RuntimeProfile? profile, string? machineAlias = null)
+    {
+        try
+        {
+            profile = Initialize(runtimeToken, machineAlias);
+            return true;
+        }
+        catch
+        {
+            profile = null;
+            return false;
+        }
     }
 
     private static CatalogEntry ResolveEntry(CatalogDocument catalog, string runtimeToken, string machine)
@@ -310,5 +373,41 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         {
             // Brak jawnego komunikatu: host zdecyduje co zrobić przy odczycie Current.
         }
+    }
+
+    private static ValidationSnapshot NewSnapshot(
+        bool success,
+        bool usedCache,
+        string tokenId,
+        string machine,
+        string code,
+        string notes)
+    {
+        return new ValidationSnapshot
+        {
+            Success = success,
+            UsedCache = usedCache,
+            SourceUrl = SourceUrl,
+            TokenId = tokenId,
+            Machine = machine,
+            CheckedAtUtc = DateTimeOffset.UtcNow,
+            Code = code,
+            Notes = notes
+        };
+    }
+
+    private static string ExtractCode(Exception ex)
+    {
+        if (ex is InvalidOperationException && !string.IsNullOrWhiteSpace(ex.Message))
+        {
+            return ex.Message.Trim();
+        }
+
+        if (ex is CryptographicException && !string.IsNullOrWhiteSpace(ex.Message))
+        {
+            return ex.Message.Trim();
+        }
+
+        return "boot-0xFF";
     }
 }
