@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ops Runtime — status seed.jwt</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .ok { color: #1a7f37; }
+    .bad { color: #cf222e; }
+    pre { background: #f6f8fa; padding: 1rem; overflow: auto; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Status połączenia — seed.jwt</h1>
+    <p>Plik hostowany na GitHub Pages; bot / demo .NET pobiera go przez HTTP GET.</p>
+  </header>
+  <main class="grid">
+    <section class="card">
+      <h2>Endpoint</h2>
+      <p><code id="seedUrl"></code></p>
+      <div class="actions">
+        <button id="fetchSeed" type="button">Pobierz seed.jwt</button>
+        <button id="decodeJwt" type="button">Dekoduj nagłówek JWT</button>
+      </div>
+      <p id="fetchStatus" class="status"></p>
+      <pre id="seedPreview"></pre>
+    </section>
+    <section class="card">
+      <h2>Demo .NET (auto-init)</h2>
+      <pre id="runHint"></pre>
+    </section>
+  </main>
+  <script>
+    const base = location.origin + location.pathname.replace(/\/[^/]*$/, "");
+    const seedUrl = base + "/seed.jwt";
+    document.getElementById("seedUrl").textContent = seedUrl;
+    document.getElementById("runHint").textContent =
+`# Mac / Linux — bez jawnego Initialize():
+source demo/pages-demo.env
+dotnet run --project demo/Ops.Runtime.Seed.AutoInitDemo
+
+# Lokalnie (przed publikacją Pages):
+FLOW_RUNTIME_SOURCE_URL=http://127.0.0.1:8765/seed.jwt \\
+  source demo/pages-demo.env && dotnet run --project demo/Ops.Runtime.Seed.AutoInitDemo`;
+
+    async function fetchSeed() {
+      const status = document.getElementById("fetchStatus");
+      const preview = document.getElementById("seedPreview");
+      status.textContent = "Pobieranie...";
+      status.className = "status";
+      try {
+        const r = await fetch(seedUrl, { cache: "no-store" });
+        const text = await r.text();
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        status.textContent = "OK — " + text.length + " bajtów, części JWT: " + text.trim().split(".").length;
+        status.classList.add("ok");
+        preview.textContent = text.slice(0, 400) + (text.length > 400 ? "..." : "");
+      } catch (e) {
+        status.textContent = "Błąd: " + e.message;
+        status.classList.add("bad");
+        preview.textContent = "";
+      }
+    }
+
+    document.getElementById("fetchSeed").addEventListener("click", fetchSeed);
+    document.getElementById("decodeJwt").addEventListener("click", async () => {
+      await fetchSeed();
+      const text = document.getElementById("seedPreview").textContent;
+      const part = text.split(".")[0];
+      if (!part) return;
+      const json = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
+      document.getElementById("seedPreview").textContent = "Header:\\n" + JSON.stringify(json, null, 2);
+    });
+    fetchSeed();
+  </script>
+</body>
+</html>

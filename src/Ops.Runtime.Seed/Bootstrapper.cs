@@ -346,18 +346,25 @@ public static class Bootstrapper
             return;
         }
 
-        cache.Write(new CachedRecord
+        try
         {
-            TokenHash = tokenHash,
-            Machine = machine,
-            Owner = profile.Owner,
-            TokenId = profile.TokenId,
-            ValidToUtc = profile.ValidToUtc,
-            ValidatedAtUtc = DateTimeOffset.UtcNow,
-            Blob = parts[0],
-            Nonce = parts[1],
-            Tag = parts[2]
-        });
+            cache.Write(new CachedRecord
+            {
+                TokenHash = tokenHash,
+                Machine = machine,
+                Owner = profile.Owner,
+                TokenId = profile.TokenId,
+                ValidToUtc = profile.ValidToUtc,
+                ValidatedAtUtc = DateTimeOffset.UtcNow,
+                Blob = parts[0],
+                Nonce = parts[1],
+                Tag = parts[2]
+            });
+        }
+        catch
+        {
+            // Cache is best-effort; remote validation already succeeded.
+        }
     }
 
     [ModuleInitializer]
@@ -373,11 +380,22 @@ public static class Bootstrapper
 
         try
         {
-            _ = Initialize(token);
+            // Nie blokuj startu procesu (loader thread). Host czyta LastCheck/Current po chwili.
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    Initialize(token);
+                }
+                catch
+                {
+                    // Host zdecyduje co zrobić przy odczycie Current.
+                }
+            });
         }
         catch
         {
-            // Brak jawnego komunikatu: host zdecyduje co zrobić przy odczycie Current.
+            // Ignored — background init only.
         }
     }
 

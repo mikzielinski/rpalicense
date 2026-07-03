@@ -1,0 +1,9 @@
+{
+  "validToken": "RT-2026-CLIENT-001",
+  "allowedMachine": "ROBOT01",
+  "pepper": "demo-long-pepper-value-123456",
+  "envelopePepper": "demo-long-envelope-pepper-xyz789",
+  "envelopeSigningKey": "demo-long-jwt-signing-key-abcdef",
+  "envelopeIssuer": "https://example.github.io",
+  "envelopeAudience": "ops-runtime-seed"
+}

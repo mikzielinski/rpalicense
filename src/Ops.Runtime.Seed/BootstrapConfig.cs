@@ -2,16 +2,25 @@ namespace Ops.Runtime.Seed;
 
 internal static class BootstrapConfig
 {
-    private const string DefaultSourceUrl = "https://example.github.io/assets/seed.jwt";
-    private const string DefaultPepper = "replace-with-long-random-pepper";
-    private const string DefaultEnvelopePepper = "replace-with-long-random-envelope-pepper";
-    private const string DefaultEnvelopeSigningKey = "replace-with-long-random-envelope-signing-key";
-    private const string DefaultEnvelopeIssuer = "https://example.github.io";
+    // Domyślne wartości demo GitHub Pages (repo rpalicense). Nadpisz env lub przed produkcją.
+    private const string DefaultSourceUrl = "https://mikzielinski.github.io/rpalicense/assets/seed.jwt";
+    private const string DefaultPepper = "pages-demo-pepper-v1-7f3a9c2e1b0d";
+    private const string DefaultEnvelopePepper = "pages-demo-envelope-pepper-v1-4e8b1a";
+    private const string DefaultEnvelopeSigningKey = "pages-demo-jwt-signing-key-v1-9d2c7f";
+    private const string DefaultEnvelopeIssuer = "https://mikzielinski.github.io/rpalicense";
     private const string DefaultEnvelopeAudience = "ops-runtime-seed";
     private const string DefaultPublicSealKeyPem = """
------BEGIN PUBLIC KEY-----
-REPLACE_WITH_RSA_PUBLIC_KEY
------END PUBLIC KEY-----
+-----BEGIN RSA PUBLIC KEY-----
+MIIBigKCAYEAth2XWrDXhL26271B54XM6rzQ85+FU7S0xuJ0zUnpiseBXGTTK1fN
+Rxs+n5dWjbA9nzey64B64QHK8+4R2SspGnTXOqNCXJQ3zYbgYOQa8ZDIIAxbwW0V
+g8zrBWnlGIF/GxwLKNr0652GFhjSCoUilIlv1Wdoql9g+72apMpZFtlTXsxWYj83
+tHJEDHEcQi8LqyUKvHZSlJO0IhVXCboxp9cpcrAQ6ti8vdHZCK5Qqyt716vU6ufT
+CY21Hhglqfcu3iaAu3XduDGWQm6lZ9JlBE9NKIBwFfSoRaSWDVNOppahUfvjd4Lv
+PXpB8IYcyspCw1hNWqF73kuaFyOxBfvlX27Ivg59FvsnYqwpz6bsu0BX3leBzFpQ
+XOY8yKi6Ue4domiCPJbUfvFEOCM+9efsJ4aDPQJ9Hy1EUUJ3aujZMxC/UihbYkFM
+BK2OruqtHH9W/occvcIobwpeNsJc/tmo9NTX7pQtSUNzVlkt/2Ff+PnpvPhadgjz
+IaXFbsOEE5prAgMBAAE=
+-----END RSA PUBLIC KEY-----
 """;
 
     internal static string SourceUrl => Read("FLOW_RUNTIME_SOURCE_URL", DefaultSourceUrl);

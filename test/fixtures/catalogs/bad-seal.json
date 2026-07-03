@@ -1,0 +1,18 @@
+{
+  "entries": [
+    {
+      "tokenId": "RT-2026-CLIENT-001",
+      "owner": "Klient Sp. z o.o.",
+      "validToUtc": "2026-12-31T23:59:59Z",
+      "enabled": true,
+      "hosts": [
+        "ROBOT01",
+        "ROBOT02"
+      ],
+      "blob": "tx9xZ1ghqyx+XNcRt7tBawcOgAbBsxTdkDHjzHyankCUWhuzdhepIKVet5TZQWUa+dKsIimM30cMn1cSJbwnbm/VYrqaBg+GYV6bK1qASCtc+EAdg6KqLy7kNMEM2tnarSGxBLn09gm9S27Xh1zfVW9Yppdgr37PR1smSmOTifTTwVVoYBotVSqcXsTCeR6VsU+y2sSvwZM18warV1wHh86SNneh9LMPo2mpZgkeoZbyFX4Sn8ORTxeHHKugptSHOzu4yJM0x6ocvFAzv/4C11bKCcJrpqtGNKdw7e8VW+4JjWHW",
+      "nonce": "PJI8pQGAEZZV75kx",
+      "tag": "5MlJmVg0rK8Q0I4eCGzQ7A==",
+      "seal": "invalid"
+    }
+  ]
+}

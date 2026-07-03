@@ -1,5 +1,8 @@
-/test/fixtures/
+/docs/assets/catalog.json
+/docs/assets/entry.json
 /test/packages/
+/demo/keys/
+/demo/pages-demo.env
 /test/uipath/RuntimeGateTest/.local/
 **/bin/
 **/obj/
