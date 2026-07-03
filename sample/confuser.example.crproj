@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project outputDir="Confused" baseDir="." xmlns="http://confuser.codeplex.com">
+  <module path="Ops.Runtime.Seed.dll">
+    <rule pattern="true" inherit="false">
+      <protection id="anti ildasm" />
+      <protection id="anti tamper" />
+      <protection id="constants" />
+      <protection id="ctrl flow" />
+      <protection id="rename" />
+    </rule>
+  </module>
+</project>
