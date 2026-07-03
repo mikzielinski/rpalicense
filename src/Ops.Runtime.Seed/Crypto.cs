@@ -72,4 +72,45 @@ internal static class Crypto
         var digest = sha.ComputeHash(Encoding.UTF8.GetBytes($"{runtimeToken}:{pepper}"));
         return Convert.ToBase64String(digest);
     }
+
+    internal static string Base64UrlEncode(byte[] data)
+    {
+        return Convert.ToBase64String(data)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+    }
+
+    internal static byte[] Base64UrlDecode(string value)
+    {
+        var s = value.Replace('-', '+').Replace('_', '/');
+        var padding = 4 - (s.Length % 4);
+        if (padding is > 0 and < 4)
+        {
+            s = s + new string('=', padding);
+        }
+
+        return Convert.FromBase64String(s);
+    }
+
+    internal static string SignHs256(string message, string signingKey)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(signingKey));
+        var signature = hmac.ComputeHash(Encoding.UTF8.GetBytes(message));
+        return Base64UrlEncode(signature);
+    }
+
+    internal static bool VerifyHs256(string message, string signatureB64Url, string signingKey)
+    {
+        try
+        {
+            var expected = Base64UrlDecode(SignHs256(message, signingKey));
+            var actual = Base64UrlDecode(signatureB64Url);
+            return CryptographicOperations.FixedTimeEquals(expected, actual);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

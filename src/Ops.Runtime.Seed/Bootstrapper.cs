@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Ops.Runtime.Seed;
@@ -15,9 +16,14 @@ public static class Bootstrapper
     private static RuntimeProfile? _current;
 
     // Własne wartości podmień przed publikacją biblioteki.
-    private const string SourceUrl = "https://raw.githubusercontent.com/example-org/runtime-catalog/main/catalog.json";
+    private const string SourceUrl = "https://example.github.io/assets/seed.jwt";
     private const string SourceToken = "";
     private const string Pepper = "replace-with-long-random-pepper";
+    private const string EnvelopePepper = "replace-with-long-random-envelope-pepper";
+    private const string EnvelopeSigningKey = "replace-with-long-random-envelope-signing-key";
+    private const string EnvelopeIssuer = "https://example.github.io";
+    private const string EnvelopeAudience = "ops-runtime-seed";
+    private const bool SourceUsesJwtEnvelope = true;
     private const string PublicSealKeyPem = """
 -----BEGIN PUBLIC KEY-----
 REPLACE_WITH_RSA_PUBLIC_KEY
@@ -55,7 +61,8 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         try
         {
             var client = new CatalogClient(Http);
-            var catalog = await client.LoadAsync(SourceUrl, SourceToken, cancellationToken).ConfigureAwait(false);
+            var sourceBody = await client.LoadRawAsync(SourceUrl, SourceToken, cancellationToken).ConfigureAwait(false);
+            var catalog = ParseCatalog(sourceBody);
             var entry = ResolveEntry(catalog, runtimeToken, machine);
             var profile = MaterializeProfile(entry, runtimeToken, key);
 
@@ -118,6 +125,90 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         }
 
         return entry;
+    }
+
+    private static CatalogDocument ParseCatalog(string sourceBody)
+    {
+        var body = sourceBody.Trim();
+        if (!SourceUsesJwtEnvelope)
+        {
+            return JsonSerializer.Deserialize<CatalogDocument>(body, Json.Options)
+                ?? throw new InvalidOperationException("boot-0x51");
+        }
+
+        return ParseCatalogFromJwt(body);
+    }
+
+    private static CatalogDocument ParseCatalogFromJwt(string jwt)
+    {
+        var parts = jwt.Split('.', StringSplitOptions.TrimEntries);
+        if (parts.Length != 3)
+        {
+            throw new InvalidOperationException("boot-0x52");
+        }
+
+        try
+        {
+            var headerJson = Encoding.UTF8.GetString(Crypto.Base64UrlDecode(parts[0]));
+            using var headerDoc = JsonDocument.Parse(headerJson);
+            var alg = headerDoc.RootElement.GetProperty("alg").GetString();
+            if (!string.Equals(alg, "HS256", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("boot-0x5A");
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        {
+            throw new InvalidOperationException("boot-0x5A");
+        }
+
+        var signed = $"{parts[0]}.{parts[1]}";
+        if (!Crypto.VerifyHs256(signed, parts[2], EnvelopeSigningKey))
+        {
+            throw new InvalidOperationException("boot-0x53");
+        }
+
+        JwtEnvelopeClaims claims;
+        try
+        {
+            var payloadJson = Encoding.UTF8.GetString(Crypto.Base64UrlDecode(parts[1]));
+            claims = JsonSerializer.Deserialize<JwtEnvelopeClaims>(payloadJson, Json.Options)
+                ?? throw new InvalidOperationException("boot-0x54");
+        }
+        catch
+        {
+            throw new InvalidOperationException("boot-0x54");
+        }
+
+        if (!string.Equals(claims.Issuer, EnvelopeIssuer, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("boot-0x55");
+        }
+
+        if (!string.Equals(claims.Audience, EnvelopeAudience, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("boot-0x56");
+        }
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (claims.NotBefore > 0 && now < claims.NotBefore)
+        {
+            throw new InvalidOperationException("boot-0x57");
+        }
+
+        if (claims.Exp > 0 && now >= claims.Exp)
+        {
+            throw new InvalidOperationException("boot-0x58");
+        }
+
+        var envelopeKey = Crypto.DeriveAesKey(EnvelopeAudience, EnvelopePepper);
+        var catalogJson = Crypto.Decrypt(claims.Blob, claims.Nonce, claims.Tag, envelopeKey);
+        return JsonSerializer.Deserialize<CatalogDocument>(catalogJson, Json.Options)
+            ?? throw new InvalidOperationException("boot-0x59");
     }
 
     private static RuntimeProfile MaterializeProfile(CatalogEntry entry, string runtimeToken, byte[] key)

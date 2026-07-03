@@ -79,3 +79,27 @@ internal sealed class CachedRecord
     [JsonPropertyName("tag")]
     public string Tag { get; init; } = string.Empty;
 }
+
+internal sealed class JwtEnvelopeClaims
+{
+    [JsonPropertyName("iss")]
+    public string Issuer { get; init; } = string.Empty;
+
+    [JsonPropertyName("aud")]
+    public string Audience { get; init; } = string.Empty;
+
+    [JsonPropertyName("exp")]
+    public long Exp { get; init; }
+
+    [JsonPropertyName("nbf")]
+    public long NotBefore { get; init; }
+
+    [JsonPropertyName("blob")]
+    public string Blob { get; init; } = string.Empty;
+
+    [JsonPropertyName("nonce")]
+    public string Nonce { get; init; } = string.Empty;
+
+    [JsonPropertyName("tag")]
+    public string Tag { get; init; } = string.Empty;
+}

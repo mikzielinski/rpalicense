@@ -1,7 +1,7 @@
 # Ops.Runtime.Seed
 
 Neutralna biblioteka do bootstrapu runtime dla UiPath:
-- walidacja wpisu z katalogu JSON hostowanego na GitHub,
+- pobieranie zaszyfrowanego katalogu opakowanego w JWT (JWS + encrypted payload),
 - podpis RSA (`seal`) żeby klient nie dopisał sobie wpisu,
 - payload szyfrowany AES-GCM zależny od `tokenId + pepper`,
 - cache offline z grace period (7 dni),
@@ -12,7 +12,8 @@ Neutralna biblioteka do bootstrapu runtime dla UiPath:
 - `src/Ops.Runtime.Seed` - biblioteka .NET do spakowania jako `.nupkg`
 - `keygen` - narzędzie do:
   - generowania pary kluczy RSA,
-  - tworzenia podpisanego wpisu do `catalog.json`.
+  - tworzenia podpisanego wpisu do `catalog.json`,
+  - opakowania katalogu do JWT (`wrapjwt`).
 
 ## 1) Build biblioteki
 
@@ -33,7 +34,7 @@ Wynik:
 - `keys/seal.private.pem` (tylko u Ciebie),
 - `keys/seal.public.pem` (wklejasz do `Bootstrapper.cs` -> `PublicSealKeyPem`).
 
-## 3) Wystawienie wpisu katalogu
+## 3) Wystawienie wpisu katalogu (wewnętrzny JSON)
 
 Przykładowy payload (`payload.json`):
 
@@ -61,9 +62,16 @@ Komenda zwraca pojedynczy obiekt JSON - wklej go do:
 }
 ```
 
-Plik hostuj na GitHub (raw URL) i ustaw `SourceUrl` w `Bootstrapper.cs`.
+## 4) Opakowanie katalogu do JWT (do hostowania na GitHub Pages)
 
-## 4) UiPath (użycie)
+```bash
+dotnet run -- wrapjwt ./catalog.json "TWOJ-DLUGI-JWT-SIGNING-KEY" "TWOJ-DLUGI-ENVELOPE-PEPPER" "https://twojadomena.pl" "ops-runtime-seed" "2026-12-31T23:59:59Z" > seed.jwt
+```
+
+Plik `seed.jwt` hostujesz jako statyczny plik na GitHub Pages / custom domain.
+W ruchu sieciowym widać token JWT, ale właściwy katalog jest zaszyfrowany (`blob`).
+
+## 5) UiPath (użycie)
 
 1. Dodaj paczkę `.nupkg` do feedu.
 2. Token (`RT-...`) trzymaj jako Asset w Orchestratorze.
@@ -75,7 +83,7 @@ var profile = Ops.Runtime.Seed.Bootstrapper.Initialize(runtimeTokenFromAsset);
 
 4. Używaj wartości z `profile` w procesie (`ApiEndpoint`, `ConnectionString`, `AgentSystemPrompt`).
 
-## 5) Autoinit
+## 6) Autoinit
 
 Jeśli ustawisz zmienną środowiskową:
 - `FLOW_RUNTIME_TOKEN` albo `APP_BOOT_TOKEN`,
@@ -88,5 +96,9 @@ to biblioteka spróbuje sama wykonać inicjalizację przy załadowaniu assembly.
   - `SourceUrl`
   - `SourceToken` (jeśli prywatne repo)
   - `Pepper`
+  - `EnvelopePepper`
+  - `EnvelopeSigningKey`
+  - `EnvelopeIssuer`
+  - `EnvelopeAudience`
   - `PublicSealKeyPem`
 - Dla obfuskacji użyj ConfuserEx lub Dotfuscatora dopiero na finalnej DLL i zawsze testuj po obfuskacji w środowisku UiPath.

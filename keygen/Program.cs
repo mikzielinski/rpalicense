@@ -17,6 +17,8 @@ try
             return RunNewKeys(args);
         case "issue":
             return RunIssue(args);
+        case "wrapjwt":
+            return RunWrapJwt(args);
         default:
             PrintHelp();
             return 1;
@@ -117,6 +119,58 @@ static int RunIssue(string[] args)
     return 0;
 }
 
+static int RunWrapJwt(string[] args)
+{
+    if (args.Length != 7)
+    {
+        Console.WriteLine("usage: wrapjwt <catalogJsonPath> <jwtSigningKey> <envelopePepper> <issuer> <audience> <expUtc>");
+        return 1;
+    }
+
+    var catalogJsonPath = args[1];
+    var jwtSigningKey = args[2];
+    var envelopePepper = args[3];
+    var issuer = args[4];
+    var audience = args[5];
+    var expUtcRaw = args[6];
+
+    if (!DateTimeOffset.TryParse(expUtcRaw, out var expUtc))
+    {
+        throw new InvalidOperationException("expUtc must be ISO date, e.g. 2026-12-31T23:59:59Z");
+    }
+
+    var catalogJson = File.ReadAllText(catalogJsonPath);
+    var envelopeKey = DeriveAesKey(audience, envelopePepper);
+    var encrypted = Encrypt(catalogJson, envelopeKey);
+    var encParts = encrypted.Split('.', StringSplitOptions.TrimEntries);
+    if (encParts.Length != 3)
+    {
+        throw new InvalidOperationException("unexpected encryption output");
+    }
+
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var claims = new JwtEnvelopeClaims
+    {
+        Issuer = issuer,
+        Audience = audience,
+        Exp = expUtc.ToUnixTimeSeconds(),
+        NotBefore = now - 30,
+        Blob = encParts[0],
+        Nonce = encParts[1],
+        Tag = encParts[2]
+    };
+
+    var headerJson = JsonSerializer.Serialize(new JwtHeader(), JsonOptions.Instance);
+    var payloadJson = JsonSerializer.Serialize(claims, JsonOptions.Instance);
+    var headerPart = Base64UrlEncode(Encoding.UTF8.GetBytes(headerJson));
+    var payloadPart = Base64UrlEncode(Encoding.UTF8.GetBytes(payloadJson));
+    var signedContent = $"{headerPart}.{payloadPart}";
+    var signature = SignHs256(signedContent, jwtSigningKey);
+
+    Console.WriteLine($"{signedContent}.{signature}");
+    return 0;
+}
+
 static string Canonical(CatalogEntry entry)
 {
     var hosts = entry.Hosts.Count == 0
@@ -160,11 +214,27 @@ static string Encrypt(string plaintext, byte[] key)
     return $"{Convert.ToBase64String(cipher)}.{Convert.ToBase64String(nonce)}.{Convert.ToBase64String(tag)}";
 }
 
+static string Base64UrlEncode(byte[] data)
+{
+    return Convert.ToBase64String(data)
+        .TrimEnd('=')
+        .Replace('+', '-')
+        .Replace('/', '_');
+}
+
+static string SignHs256(string message, string signingKey)
+{
+    using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(signingKey));
+    var signature = hmac.ComputeHash(Encoding.UTF8.GetBytes(message));
+    return Base64UrlEncode(signature);
+}
+
 static void PrintHelp()
 {
     Console.WriteLine("SeedForge");
     Console.WriteLine("  newkeys <outputDir>");
     Console.WriteLine("  issue <privateKeyPemPath> <pepper> <tokenId> <owner> <validToUtc> <hostsCsv> <payloadJsonPath>");
+    Console.WriteLine("  wrapjwt <catalogJsonPath> <jwtSigningKey> <envelopePepper> <issuer> <audience> <expUtc>");
 }
 
 internal sealed class CatalogEntry
@@ -215,4 +285,37 @@ internal sealed class JsonOptions
     {
         WriteIndented = false
     };
+}
+
+internal sealed class JwtHeader
+{
+    [JsonPropertyName("alg")]
+    public string Algorithm { get; init; } = "HS256";
+
+    [JsonPropertyName("typ")]
+    public string Type { get; init; } = "JWT";
+}
+
+internal sealed class JwtEnvelopeClaims
+{
+    [JsonPropertyName("iss")]
+    public string Issuer { get; init; } = string.Empty;
+
+    [JsonPropertyName("aud")]
+    public string Audience { get; init; } = string.Empty;
+
+    [JsonPropertyName("exp")]
+    public long Exp { get; init; }
+
+    [JsonPropertyName("nbf")]
+    public long NotBefore { get; init; }
+
+    [JsonPropertyName("blob")]
+    public string Blob { get; init; } = string.Empty;
+
+    [JsonPropertyName("nonce")]
+    public string Nonce { get; init; } = string.Empty;
+
+    [JsonPropertyName("tag")]
+    public string Tag { get; init; } = string.Empty;
 }
