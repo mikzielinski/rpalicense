@@ -120,16 +120,14 @@ Po zmianie wpisu:
 
 Panel `docs/` prowadzi ten flow krok po kroku.
 
-## 7) Panel GitHub Pages (operacyjny)
+## 7) Panel GitHub Pages (uproszczony)
 
 1. Włącz GitHub Pages z folderu `docs`.
 2. Otwórz opublikowane `index.html`.
-3. Wykonuj operacje:
-   - `Zdalne odciecie`,
-   - `Odnowienie`,
-   - `Przelicz seal`,
-   - `Generuj seed.jwt`,
-   - `Opublikuj seed.jwt do repo`.
+3. Workflow operatora (3 kroki):
+   - **Krok 1:** wybierz `tokenId` i kliknij `Odetnij` lub `Odnow`, potem `Przelicz seal`.
+   - **Krok 2:** kliknij `Generuj seed.jwt`.
+   - **Krok 3:** kliknij `Opublikuj seed.jwt do repo`.
 
 Konwersja PEM -> JWK dla panelu:
 

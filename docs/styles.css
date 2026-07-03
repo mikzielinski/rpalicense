@@ -69,12 +69,14 @@ body {
 
 textarea,
 input,
+select,
 button {
   font: inherit;
 }
 
 textarea,
-input {
+input,
+select {
   width: 100%;
   border: 1px solid var(--line);
   background: #0f131c;
