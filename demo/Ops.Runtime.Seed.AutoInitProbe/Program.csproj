@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Ops.Runtime.Seed.AutoInitProbe</AssemblyName>
+    <RootNamespace>Ops.Runtime.Seed.AutoInitProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Ops.Runtime.Seed/Ops.Runtime.Seed.csproj" />
+  </ItemGroup>
+</Project>

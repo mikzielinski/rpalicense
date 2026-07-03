@@ -1,0 +1,12 @@
+{
+  "pagesBaseUrl": "https://mikzielinski.github.io/rpalicense",
+  "seedPath": "/assets/seed.jwt",
+  "tokenId": "RT-DEMO-PAGES-001",
+  "owner": "GitHub Pages Demo",
+  "validToUtc": "2027-12-31T23:59:59Z",
+  "pepper": "pages-demo-pepper-v1-7f3a9c2e1b0d",
+  "envelopePepper": "pages-demo-envelope-pepper-v1-4e8b1a",
+  "envelopeSigningKey": "pages-demo-jwt-signing-key-v1-9d2c7f",
+  "envelopeIssuer": "https://mikzielinski.github.io/rpalicense",
+  "envelopeAudience": "ops-runtime-seed"
+}

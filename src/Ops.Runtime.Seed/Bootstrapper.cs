@@ -18,26 +18,21 @@ public static class Bootstrapper
     {
         Success = false,
         UsedCache = false,
-        SourceUrl = SourceUrl,
+        SourceUrl = BootstrapConfig.SourceUrl,
         CheckedAtUtc = DateTimeOffset.MinValue,
         Code = "boot-0x00",
         Notes = "not-initialized"
     };
 
-    // Własne wartości podmień przed publikacją biblioteki.
-    private const string SourceUrl = "https://example.github.io/assets/seed.jwt";
-    private const string SourceToken = "";
-    private const string Pepper = "replace-with-long-random-pepper";
-    private const string EnvelopePepper = "replace-with-long-random-envelope-pepper";
-    private const string EnvelopeSigningKey = "replace-with-long-random-envelope-signing-key";
-    private const string EnvelopeIssuer = "https://example.github.io";
-    private const string EnvelopeAudience = "ops-runtime-seed";
-    private const bool SourceUsesJwtEnvelope = true;
-    private const string PublicSealKeyPem = """
------BEGIN PUBLIC KEY-----
-REPLACE_WITH_RSA_PUBLIC_KEY
------END PUBLIC KEY-----
-""";
+    private static string SourceUrl => BootstrapConfig.SourceUrl;
+    private static string SourceToken => BootstrapConfig.SourceToken;
+    private static string Pepper => BootstrapConfig.Pepper;
+    private static string EnvelopePepper => BootstrapConfig.EnvelopePepper;
+    private static string EnvelopeSigningKey => BootstrapConfig.EnvelopeSigningKey;
+    private static string EnvelopeIssuer => BootstrapConfig.EnvelopeIssuer;
+    private static string EnvelopeAudience => BootstrapConfig.EnvelopeAudience;
+    private static bool SourceUsesJwtEnvelope => BootstrapConfig.SourceUsesJwtEnvelope;
+    private static string PublicSealKeyPem => BootstrapConfig.PublicSealKeyPem;
 
     private const int GraceDays = 7;
 
@@ -70,11 +65,22 @@ REPLACE_WITH_RSA_PUBLIC_KEY
     {
         if (string.IsNullOrWhiteSpace(runtimeToken))
         {
+            lock (Gate)
+            {
+                _lastCheck = NewSnapshot(
+                    success: false,
+                    usedCache: false,
+                    tokenId: string.Empty,
+                    machine: (machineAlias ?? Environment.MachineName).Trim().ToUpperInvariant(),
+                    code: "boot-0x01",
+                    notes: "empty-token");
+            }
+
             throw new InvalidOperationException("boot-0x01");
         }
 
         var machine = (machineAlias ?? Environment.MachineName).Trim().ToUpperInvariant();
-        var cache = new CacheStore();
+        var cache = new CacheStore(BootstrapConfig.CachePath);
         var key = Crypto.DeriveAesKey(runtimeToken, Pepper);
         var tokenHash = Crypto.HashToken(runtimeToken, Pepper);
 
@@ -340,18 +346,25 @@ REPLACE_WITH_RSA_PUBLIC_KEY
             return;
         }
 
-        cache.Write(new CachedRecord
+        try
         {
-            TokenHash = tokenHash,
-            Machine = machine,
-            Owner = profile.Owner,
-            TokenId = profile.TokenId,
-            ValidToUtc = profile.ValidToUtc,
-            ValidatedAtUtc = DateTimeOffset.UtcNow,
-            Blob = parts[0],
-            Nonce = parts[1],
-            Tag = parts[2]
-        });
+            cache.Write(new CachedRecord
+            {
+                TokenHash = tokenHash,
+                Machine = machine,
+                Owner = profile.Owner,
+                TokenId = profile.TokenId,
+                ValidToUtc = profile.ValidToUtc,
+                ValidatedAtUtc = DateTimeOffset.UtcNow,
+                Blob = parts[0],
+                Nonce = parts[1],
+                Tag = parts[2]
+            });
+        }
+        catch
+        {
+            // Cache is best-effort; remote validation already succeeded.
+        }
     }
 
     [ModuleInitializer]
@@ -367,11 +380,23 @@ REPLACE_WITH_RSA_PUBLIC_KEY
 
         try
         {
-            _ = Initialize(token);
+            // Nie blokuj startu procesu (loader thread). Host czyta LastCheck/Current po chwili.
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    var machine = Environment.GetEnvironmentVariable("FLOW_RUNTIME_MACHINE");
+                    Initialize(token, string.IsNullOrWhiteSpace(machine) ? null : machine);
+                }
+                catch
+                {
+                    // Host zdecyduje co zrobić przy odczycie Current.
+                }
+            });
         }
         catch
         {
-            // Brak jawnego komunikatu: host zdecyduje co zrobić przy odczycie Current.
+            // Ignored — background init only.
         }
     }
 

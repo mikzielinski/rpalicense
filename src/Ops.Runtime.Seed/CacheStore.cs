@@ -8,7 +8,9 @@ internal sealed class CacheStore
 
     internal CacheStore(string? customPath = null)
     {
-        _path = customPath ?? BuildPath();
+        _path = !string.IsNullOrWhiteSpace(customPath)
+            ? customPath
+            : BuildPath();
     }
 
     internal CachedRecord? Read()
@@ -43,12 +45,60 @@ internal sealed class CacheStore
 
     private static string BuildPath()
     {
-        var root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        if (string.IsNullOrWhiteSpace(root))
+        foreach (var root in CandidateRoots())
         {
-            root = Path.GetTempPath();
+            if (TryResolveCachePath(root, out var path))
+            {
+                return path;
+            }
         }
 
-        return Path.Combine(root, "OpsRuntime", "seed.cache.json");
+        return Path.Combine(Path.GetTempPath(), "OpsRuntime", "seed.cache.json");
+    }
+
+    private static IEnumerable<string> CandidateRoots()
+    {
+        var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (!string.IsNullOrWhiteSpace(xdg))
+        {
+            yield return xdg;
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            yield return Path.Combine(home, ".local", "share");
+        }
+
+        var common = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        if (!string.IsNullOrWhiteSpace(common))
+        {
+            yield return common;
+        }
+
+        yield return Path.GetTempPath();
+    }
+
+    private static bool TryResolveCachePath(string root, out string path)
+    {
+        path = Path.Combine(root, "OpsRuntime", "seed.cache.json");
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                return false;
+            }
+
+            Directory.CreateDirectory(dir);
+            var probe = Path.Combine(dir, ".write-probe");
+            File.WriteAllText(probe, "ok");
+            File.Delete(probe);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
