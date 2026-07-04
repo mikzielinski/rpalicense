@@ -62,15 +62,17 @@ function loadSettings() {
 }
 
 function saveSettingsFromForm() {
+  const tokenInput = byId("cfgGhToken").value.trim();
+  const previous = state.settings ?? {};
   state.settings = {
     operatorName: byId("cfgOperator").value.trim(),
     ghOwner: byId("cfgGhOwner").value.trim(),
     ghRepo: byId("cfgGhRepo").value.trim(),
     ghBranch: byId("cfgGhBranch").value.trim() || "main",
-    ghSeedPath: state.defaults.ghSeedPath ?? "docs/assets/seed.jwt",
-    ghAuditPath: state.defaults.ghAuditPath ?? "docs/assets/audit-log.json",
+    ghSeedPath: previous.ghSeedPath ?? state.defaults.ghSeedPath ?? "docs/assets/seed.jwt",
+    ghAuditPath: previous.ghAuditPath ?? state.defaults.ghAuditPath ?? "docs/assets/audit-log.json",
     seedUrl: byId("cfgSeedUrl").value.trim(),
-    ghToken: byId("cfgGhToken").value.trim(),
+    ghToken: tokenInput || previous.ghToken || "",
     pepper: byId("cfgPepper").value,
     envelopePepper: byId("cfgEnvelopePepper").value,
     jwtSigningKey: byId("cfgJwtSigningKey").value,
@@ -104,6 +106,7 @@ function bindUi() {
   });
   byId("btnRefreshLive").addEventListener("click", () => refreshFromLive(true));
   byId("btnPublishAll").addEventListener("click", () => publishAll());
+  byId("btnTestGitHub").addEventListener("click", testGitHubConnection);
   byId("btnCreateLicense").addEventListener("click", createLicense);
   byId("btnCheckLive").addEventListener("click", checkLiveStatus);
   byId("btnClearLocalLog").addEventListener("click", () => {
@@ -130,8 +133,26 @@ function settingsReady() {
 }
 
 function publishReady() {
+  saveSettingsFromForm();
   const s = state.settings;
-  return settingsReady() && s.ghOwner && s.ghRepo && s.ghToken;
+  const missing = [];
+  if (!s.seedUrl) missing.push("URL seed.jwt");
+  if (!s.pepper) missing.push("Pepper");
+  if (!s.envelopePepper) missing.push("Envelope pepper");
+  if (!s.jwtSigningKey) missing.push("JWT signing key");
+  if (!s.issuer) missing.push("Issuer");
+  if (!s.audience) missing.push("Audience");
+  if (!s.sealJwk) missing.push("JWK RSA");
+  if (!s.ghOwner) missing.push("GitHub owner");
+  if (!s.ghRepo) missing.push("GitHub repo");
+  if (!s.ghToken) missing.push("GitHub PAT");
+  state.publishMissing = missing;
+  return missing.length === 0;
+}
+
+function formatPublishBlockers() {
+  if (!state.publishMissing?.length) return "";
+  return `Brakuje: ${state.publishMissing.join(", ")}`;
 }
 
 async function refreshFromLive(manual = false) {
@@ -187,37 +208,69 @@ function auditLogPublicUrl() {
 async function publishAll(options = {}) {
   saveSettingsFromForm();
   if (!publishReady()) {
-    const msg = "Uzupełnij ustawienia: sekrety, PAT, owner, repo.";
+    const msg = formatPublishBlockers() || "Uzupełnij ustawienia.";
     setStatus("publishStatus", msg, "warn");
     return { ok: false, error: msg };
   }
   if (!catalog.entries.length) {
-    const msg = "Katalog jest pusty — utwórz licencję.";
+    const msg = "Katalog jest pusty — utwórz licencję lub odśwież z serwera.";
     setStatus("publishStatus", msg, "warn");
     return { ok: false, error: msg };
   }
 
   setPublishing(true);
-  setStatus("publishStatus", "Publikuję na GitHub…", "");
+  setStatus("publishStatus", "Publikuję seed.jwt na GitHub…", "");
   try {
     await resealAllEntries();
     const jwt = await buildSeedJwt(catalog);
-    await publishGitHubFile(state.settings.ghSeedPath, `${jwt}\n`, options.commitMessage ?? "Update seed.jwt (panel)");
-    appendAudit("publish", null, "ok", `Opublikowano seed.jwt (${catalog.entries.length} wpisów)`);
-    await publishAuditLog();
+    const seedResult = await publishGitHubFile(
+      state.settings.ghSeedPath,
+      `${jwt}\n`,
+      options.commitMessage ?? "Update seed.jwt (panel)"
+    );
+    appendAudit("publish", null, "ok", `seed.jwt → commit ${seedResult.sha?.slice(0, 7) ?? "ok"}`);
+
+    try {
+      await publishAuditLog();
+    } catch (auditError) {
+      appendAudit("publish-audit", null, "warn", auditError.message);
+    }
+
     state.dirty = false;
-    const msg = "Opublikowano na GitHub. Pages odświeży się za ~1–2 min.";
+    const msg = `Opublikowano seed.jwt (commit ${seedResult.sha?.slice(0, 7) ?? "?"}). Pages za ~1–2 min.`;
     setStatus("publishStatus", msg, "ok");
     setHeader(`Opublikowano ${catalog.entries.length} licencji na serwerze.`, "ok");
     renderAll();
     return { ok: true };
   } catch (error) {
-    setStatus("publishStatus", `Błąd publikacji: ${error.message}`, "bad");
+    const msg = `Błąd publikacji: ${error.message}`;
+    setStatus("publishStatus", msg, "bad");
     appendAudit("publish", null, "error", error.message);
     renderAuditTable();
     return { ok: false, error: error.message };
   } finally {
     setPublishing(false);
+  }
+}
+
+async function testGitHubConnection() {
+  saveSettingsFromForm();
+  if (!state.settings.ghOwner || !state.settings.ghRepo || !state.settings.ghToken) {
+    return setStatus("settingsStatus", "Podaj owner, repo i PAT, potem Zapisz ustawienia.", "warn");
+  }
+  setStatus("settingsStatus", "Testuję połączenie z GitHub…", "");
+  try {
+    const info = await githubRequest(
+      `https://api.github.com/repos/${encodeURIComponent(state.settings.ghOwner)}/${encodeURIComponent(state.settings.ghRepo)}`,
+      "GET"
+    );
+    setStatus(
+      "settingsStatus",
+      `OK: repo „${info.full_name}”, domyślny branch „${info.default_branch}”. PAT działa.`,
+      "ok"
+    );
+  } catch (error) {
+    setStatus("settingsStatus", `GitHub: ${error.message}`, "bad");
   }
 }
 
@@ -526,34 +579,65 @@ async function publishAuditLog() {
 }
 
 async function publishGitHubFile(path, content, message) {
-  const s = state.settings;
-  const apiUrl = `https://api.github.com/repos/${encodeURIComponent(s.ghOwner)}/${encodeURIComponent(s.ghRepo)}/contents/${path}`;
-  const headers = {
-    Authorization: `Bearer ${s.ghToken}`,
-    Accept: "application/vnd.github+json",
-    "Content-Type": "application/json"
-  };
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  const apiUrl = `https://api.github.com/repos/${encodeURIComponent(state.settings.ghOwner)}/${encodeURIComponent(state.settings.ghRepo)}/contents/${encodedPath}`;
 
   let sha = null;
-  const getResp = await fetch(`${apiUrl}?ref=${encodeURIComponent(s.ghBranch)}`, { headers });
-  if (getResp.status === 200) {
-    sha = (await getResp.json()).sha ?? null;
-  } else if (getResp.status !== 404) {
-    throw new Error(`GitHub GET HTTP ${getResp.status}`);
+  try {
+    const existing = await githubRequest(`${apiUrl}?ref=${encodeURIComponent(state.settings.ghBranch)}`, "GET");
+    sha = existing.sha ?? null;
+  } catch (error) {
+    if (!String(error.message).includes("HTTP 404")) throw error;
   }
 
   const body = {
     message,
     content: toBase64(new TextEncoder().encode(content)),
-    branch: s.ghBranch
+    branch: state.settings.ghBranch
   };
   if (sha) body.sha = sha;
 
-  const putResp = await fetch(apiUrl, { method: "PUT", headers, body: JSON.stringify(body) });
-  if (!putResp.ok) {
-    const txt = await putResp.text();
-    throw new Error(`GitHub PUT HTTP ${putResp.status}: ${txt}`);
+  return githubRequest(apiUrl, "PUT", body);
+}
+
+async function githubRequest(url, method, body) {
+  const s = state.settings;
+  const headers = {
+    Authorization: `Bearer ${s.ghToken}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+  if (body) headers["Content-Type"] = "application/json";
+
+  const resp = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  const text = await resp.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
   }
+
+  if (!resp.ok) {
+    const ghMsg = json?.message ?? text?.slice(0, 200) ?? resp.statusText;
+    if (resp.status === 401) {
+      throw new Error(`HTTP 401 — PAT nieprawidłowy lub wygasł. Wygeneruj nowy token z uprawnieniem repo (Contents: write).`);
+    }
+    if (resp.status === 403) {
+      throw new Error(`HTTP 403 — brak uprawnień: ${ghMsg}. PAT musi mieć dostęp do zapisu w repo ${s.ghOwner}/${s.ghRepo}.`);
+    }
+    if (resp.status === 404) {
+      throw new Error(`HTTP 404 — nie znaleziono: ${ghMsg}. Sprawdź owner/repo/branch (${s.ghBranch}).`);
+    }
+    throw new Error(`HTTP ${resp.status}: ${ghMsg}`);
+  }
+
+  return json?.content ? { sha: json.content.sha, commit: json.commit?.sha } : json ?? {};
 }
 
 function appendAudit(action, tokenId, code, notes) {
@@ -595,9 +679,7 @@ function renderLicenseTable() {
     const actions = tr.querySelector(".row-actions");
     actions.appendChild(actionBtn("Odnów", () => mutateLicense(e.tokenId, "renew")));
     actions.appendChild(actionBtn("Odetnij", () => mutateLicense(e.tokenId, "disable")));
-    actions.appendChild(actionBtn("Usuń", () => {
-      if (confirm(`Usunąć licencję ${e.tokenId}?`)) mutateLicense(e.tokenId, "delete");
-    }));
+    actions.appendChild(actionBtn("Usuń", () => mutateLicense(e.tokenId, "delete")));
     tbody.appendChild(tr);
   }
 

@@ -15,7 +15,7 @@
       </div>
       <div class="header-actions">
         <button id="btnRefreshLive" type="button">Odśwież z serwera</button>
-        <button id="btnPublishAll" type="button" class="primary">Opublikuj ręcznie</button>
+        <button id="btnPublishAll" type="button" class="primary">Zapisz i opublikuj</button>
       </div>
     </div>
   </header>
@@ -63,6 +63,7 @@
       </label>
       <div class="actions">
         <button id="btnSaveSettings" type="button">Zapisz ustawienia</button>
+        <button id="btnTestGitHub" type="button">Testuj GitHub PAT</button>
       </div>
       <p id="settingsStatus" class="status"></p>
     </details>
@@ -86,7 +87,7 @@
           <tbody id="licenseTableBody"></tbody>
         </table>
       </div>
-      <p id="publishStatus" class="status">Akcje Odetnij / Odnów / Usuń publikują od razu na GitHub (wymaga PAT).</p>
+      <p id="publishStatus" class="status">Wymaga PAT z uprawnieniem zapisu do repo (scope: repo lub Contents: write).</p>
     </section>
 
     <section class="card">
@@ -162,6 +163,6 @@
     <p>Sekrety i klucze są przetwarzane lokalnie w przeglądarce. PAT nie jest wysyłany nigdzie poza GitHub API.</p>
   </footer>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=3"></script>
 </body>
 </html>
