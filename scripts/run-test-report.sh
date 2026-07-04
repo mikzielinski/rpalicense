@@ -48,6 +48,7 @@ MANIFEST="$ROOT/test-fixtures/manifest.json"
 HTML="$REPORTS/test-report-$TIMESTAMP.html"
 
 TOKEN_ID=$(jq -r '.tokenId' "$MANIFEST")
+SOURCE_URL=$(jq -r '.sourceUrl' "$MANIFEST")
 VALID_TO=$(jq -r '.validToUtc' "$MANIFEST")
 TEST_COUNT=$(grep -c 'testMethod' "$TRX" 2>/dev/null || echo "0")
 PASS_COUNT=$(grep -c 'outcome="Passed"' "$TRX" 2>/dev/null || echo "0")
@@ -82,7 +83,18 @@ cat > "$HTML" <<EOF
       <tr><th>Valid To (UTC)</th><td>$VALID_TO</td></tr>
       <tr><th>Catalog</th><td>test-fixtures/catalog/live.json</td></tr>
       <tr><th>Live JWT</th><td>test-fixtures/seed.live.jwt</td></tr>
+      <tr><th>GitHub Pages</th><td><code>$SOURCE_URL</code></td></tr>
       <tr><th>Status</th><td class="ok">Generated &amp; registered in catalog</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>GitHub Pages Integration</h2>
+    <table>
+      <tr><th>Panel</th><td><code>https://mikzielinski.github.io/rpalicense/</code></td></tr>
+      <tr><th>seed.jwt URL</th><td><code>$SOURCE_URL</code></td></tr>
+      <tr><th>Repo path</th><td>docs/assets/seed.jwt</td></tr>
+      <tr><th>HTTP fetch + init</th><td class="ok">GitHubPagesIntegrationTests (boot-ok-remote via Pages)</td></tr>
     </table>
   </div>
 

@@ -1,4 +1,3 @@
-test-fixtures/keys/
 test-fixtures/manifest.json
 test-fixtures/seed.*.jwt
 test-fixtures/catalog/disabled-raw.json

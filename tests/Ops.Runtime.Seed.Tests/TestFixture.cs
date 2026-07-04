@@ -5,6 +5,9 @@ namespace Ops.Runtime.Seed.Tests;
 
 public sealed class FixtureManifest
 {
+    [JsonPropertyName("sourceUrl")]
+    public string SourceUrl { get; init; } = string.Empty;
+
     [JsonPropertyName("tokenId")]
     public string TokenId { get; init; } = string.Empty;
 

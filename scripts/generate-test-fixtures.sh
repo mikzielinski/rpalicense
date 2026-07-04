@@ -11,6 +11,7 @@ mkdir -p "$KEYS" "$FIXTURES/catalog"
 
 read_config() { jq -r ".$1" "$CONFIG"; }
 
+SOURCE_URL=$(read_config sourceUrl)
 PEPPER=$(read_config pepper)
 TOKEN_ID=$(read_config tokenId)
 OWNER=$(read_config owner)
@@ -21,8 +22,12 @@ ENV_PEPPER=$(read_config envelopePepper)
 ISSUER=$(read_config envelopeIssuer)
 AUDIENCE=$(read_config envelopeAudience)
 
-echo "==> [1/4] Generating RSA seal keys"
-$KEYGEN newkeys "$KEYS"
+echo "==> [1/5] RSA seal keys"
+if [[ -f "$KEYS/seal.private.pem" && -f "$KEYS/seal.public.pem" ]]; then
+  echo "    reusing existing keys in $KEYS"
+else
+  $KEYGEN newkeys "$KEYS"
+fi
 
 echo "==> [2/4] Issuing registered license: $TOKEN_ID"
 ENTRY=$($KEYGEN issue "$KEYS/seal.private.pem" "$PEPPER" "$TOKEN_ID" "$OWNER" "$VALID_TO" "$HOSTS" "$ROOT/sample/payload.example.json")
@@ -47,6 +52,7 @@ $KEYGEN wrapjwt "$FIXTURES/catalog/host-restricted.json" "$JWT_KEY" "$ENV_PEPPER
 cp "$KEYS/seal.public.pem" "$FIXTURES/seal.public.pem"
 
 jq -n \
+  --arg sourceUrl "$SOURCE_URL" \
   --arg tokenId "$TOKEN_ID" \
   --arg pepper "$PEPPER" \
   --arg envPepper "$ENV_PEPPER" \
@@ -60,6 +66,7 @@ jq -n \
   --arg hostRestrictedJwt "$(cat "$FIXTURES/seed.host-restricted.jwt")" \
   --arg catalog "$(cat "$FIXTURES/catalog/live.json")" \
   '{
+    sourceUrl: $sourceUrl,
     tokenId: $tokenId,
     pepper: $pepper,
     envelopePepper: $envPepper,
@@ -74,10 +81,17 @@ jq -n \
     catalog: ($catalog | fromjson)
   }' > "$FIXTURES/manifest.json"
 
+PAGES_ASSET="$ROOT/docs/assets/seed.jwt"
+mkdir -p "$(dirname "$PAGES_ASSET")"
+cp "$FIXTURES/seed.live.jwt" "$PAGES_ASSET"
+echo "==> [6/6] Published seed.jwt for GitHub Pages -> docs/assets/seed.jwt"
+
 echo ""
 echo "Fixtures generated:"
 echo "  tokenId:       $TOKEN_ID"
+echo "  sourceUrl:     $SOURCE_URL"
 echo "  live catalog:  $FIXTURES/catalog/live.json"
 echo "  live JWT:      $FIXTURES/seed.live.jwt"
+echo "  pages JWT:     $PAGES_ASSET"
 echo "  disabled JWT:  $FIXTURES/seed.disabled.jwt"
 echo "  manifest:      $FIXTURES/manifest.json"
