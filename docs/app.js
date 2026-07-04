@@ -905,10 +905,18 @@ function appendAudit(action, tokenId, code, notes) {
     tokenId: tokenId ?? "-",
     code: code ?? "-",
     success: code === "ok" || code === "boot-ok-remote",
-    notes: notes ?? ""
+    notes: sanitizeAuditNotes(notes ?? "")
   });
   if (auditLog.length > 500) auditLog.length = 500;
   renderAuditTable();
+}
+
+function sanitizeAuditNotes(text) {
+  return String(text)
+    .replace(/ghp_[A-Za-z0-9_]+/g, "ghp_[REDACTED]")
+    .replace(/github_pat_[A-Za-z0-9_]+/g, "github_pat_[REDACTED]")
+    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+    .slice(0, 500);
 }
 
 function licenseStatus(entry) {

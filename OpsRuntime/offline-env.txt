@@ -1,8 +1,0 @@
-# Zmienne srodowiskowe do testu offline (Panel systemu Windows lub setx)
-OPS_SEED_CATALOG_FILE=/workspace/OpsRuntime/catalog\seed.jwt
-OPS_SEED_PEPPER=test-pepper-ops-runtime-seed-2026
-OPS_SEED_ENVELOPE_PEPPER=test-envelope-pepper-ops-runtime-2026
-OPS_SEED_ENVELOPE_SIGNING_KEY=test-jwt-signing-key-ops-runtime-seed-2026
-
-# Token testowy (Orchestrator Asset lub Invoke Code):
-# RT-TEST-REPORT-001

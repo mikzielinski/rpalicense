@@ -5,3 +5,4 @@ reports/
 artifacts/
 **/bin/
 **/obj/
+OpsRuntime/

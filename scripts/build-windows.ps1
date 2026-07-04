@@ -131,8 +131,9 @@ function New-Fixtures {
         $cfg.envelopeAudience,
         $cfg.validToUtc
     )
-    $jwt = & dotnet @wrapArgs
-    if ($LASTEXITCODE -ne 0) { throw 'keygen wrapjwt failed' }
+    $raw = & dotnet @wrapArgs 2>$null
+    $jwt = ($raw | Where-Object { $_ -match '^eyJ' } | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0 -or -not $jwt) { throw 'keygen wrapjwt failed' }
 
     $jwt.Trim() | Set-Content -Path $SeedLiveJwt -Encoding ASCII -NoNewline
     Write-Host "    tokenId:  $($cfg.tokenId)"
@@ -161,8 +162,9 @@ function Ensure-SeedJwt {
         $cfg.envelopeAudience,
         $cfg.validToUtc
     )
-    $jwt = & dotnet @wrapArgs
-    if ($LASTEXITCODE -ne 0) { throw 'keygen wrapjwt failed' }
+    $raw = & dotnet @wrapArgs 2>$null
+    $jwt = ($raw | Where-Object { $_ -match '^eyJ' } | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0 -or -not $jwt) { throw 'keygen wrapjwt failed' }
 
     $jwt.Trim() | Set-Content -Path $SeedLiveJwt -Encoding ASCII -NoNewline
     return $SeedLiveJwt
