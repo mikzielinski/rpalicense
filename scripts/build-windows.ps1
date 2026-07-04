@@ -185,6 +185,34 @@ function Copy-BuildArtifacts {
     Copy-Item -Path $DllSource -Destination (Join-Path $libDir 'Ops.Runtime.Seed.dll') -Force
     Copy-Item -Path $NuGetSource -Destination $nugetDir -Force
 
+    $HookDll = $null
+    $HookProject = Join-Path $Root 'src\Enterprise.WorkflowHost\Enterprise.WorkflowHost.csproj'
+    if (Test-Path $HookProject) {
+        Write-Step 'Build startup hook (Enterprise.WorkflowHost)'
+        Invoke-DotNet @('build', $HookProject, '-c', 'Release')
+        $HookDll = Join-Path $Root 'src\Enterprise.WorkflowHost\bin\Release\net6.0\Enterprise.WorkflowHost.dll'
+        if (Test-Path $HookDll) {
+            $hostDir = Join-Path $OutputRoot 'host'
+            New-Item -ItemType Directory -Force -Path $hostDir | Out-Null
+            Copy-Item -Path $HookDll -Destination (Join-Path $hostDir 'Enterprise.WorkflowHost.dll') -Force
+            Copy-Item -Path $DllSource -Destination (Join-Path $hostDir 'Ops.Runtime.Seed.dll') -Force
+        }
+    }
+
+    $ReleaseStealth = Join-Path $Root 'release\windows-uipath'
+    if (Test-Path $ReleaseStealth) {
+        $releaseHost = Join-Path $ReleaseStealth 'host'
+        $releaseLib = Join-Path $ReleaseStealth 'lib'
+        $releaseNuget = Join-Path $ReleaseStealth 'nuget'
+        New-Item -ItemType Directory -Force -Path $releaseHost, $releaseLib, $releaseNuget | Out-Null
+        Copy-Item -Path $DllSource -Destination (Join-Path $releaseLib 'Ops.Runtime.Seed.dll') -Force
+        Copy-Item -Path $NuGetSource -Destination (Join-Path $releaseNuget (Split-Path $NuGetSource -Leaf)) -Force
+        if ($HookDll -and (Test-Path $HookDll)) {
+            Copy-Item -Path $HookDll -Destination (Join-Path $releaseHost 'Enterprise.WorkflowHost.dll') -Force
+            Copy-Item -Path $DllSource -Destination (Join-Path $releaseHost 'Ops.Runtime.Seed.dll') -Force
+        }
+    }
+
     $seedSource = Ensure-SeedJwt
     if ($seedSource) {
         Copy-Item -Path $seedSource -Destination (Join-Path $catalogDir 'seed.jwt') -Force
@@ -293,3 +321,6 @@ Write-Host @'
       throw new System.Exception(Ops.Runtime.Seed.Bootstrapper.LastCheck.Code);
   System.Console.WriteLine(profile.ApiEndpoint);
 '@
+Write-Host ''
+Write-Host 'Opcja STEALTH (bez ref w projekcie):' -ForegroundColor DarkGray
+Write-Host '  release\windows-uipath\INSTALUJ-STEALTH.cmd + INSTRUKCJA-STEALTH.txt' -ForegroundColor DarkGray

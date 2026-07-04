@@ -8,7 +8,7 @@ set "DESKTOP=%USERPROFILE%\Desktop\OpsRuntime"
 
 echo.
 echo ========================================
-echo   Ops.Runtime.Seed - instalacja UiPath
+echo   Ops.Runtime.Seed - instalacja UiPath (metoda glowna)
 echo ========================================
 echo.
 echo Zrodlo:  %SRC%
@@ -32,14 +32,14 @@ mkdir "%DESKTOP%\catalog" 2>nul
 
 echo Kopiowanie plikow...
 copy /Y "%SRC%lib\Ops.Runtime.Seed.dll"           "%DEST%\lib\" >nul
-copy /Y "%SRC%nuget\Ops.Runtime.Seed.1.0.1.nupkg" "%DEST%\nuget\" >nul
+copy /Y "%SRC%nuget\Ops.Runtime.Seed.1.0.2.nupkg" "%DEST%\nuget\" >nul
 copy /Y "%SRC%catalog\seed.jwt"                   "%DEST%\catalog\" >nul
 copy /Y "%SRC%test-config.json"                   "%DEST%\" >nul
 copy /Y "%SRC%offline-env.txt"                    "%DEST%\" >nul
 copy /Y "%SRC%INSTRUKCJA-UIPATH.txt"              "%DEST%\" >nul
 
 copy /Y "%SRC%lib\Ops.Runtime.Seed.dll"           "%DESKTOP%\lib\" >nul
-copy /Y "%SRC%nuget\Ops.Runtime.Seed.1.0.1.nupkg" "%DESKTOP%\nuget\" >nul
+copy /Y "%SRC%nuget\Ops.Runtime.Seed.1.0.2.nupkg" "%DESKTOP%\nuget\" >nul
 copy /Y "%SRC%catalog\seed.jwt"                   "%DESKTOP%\catalog\" >nul
 copy /Y "%SRC%INSTRUKCJA-UIPATH.txt"              "%DESKTOP%\" >nul
 
@@ -58,6 +58,9 @@ echo UiPath - dodaj feed NuGet:
 echo   %DEST%\nuget
 echo.
 echo Token testowy: RT-TEST-REPORT-001
+echo.
+echo Metoda glowna: INSTRUKCJA-UIPATH.txt (NuGet + Assign)
+echo Opcja STEALTH:  INSTRUKCJA-STEALTH.txt (tylko maszyna robota)
 echo.
 
 start "" explorer "%DEST%"

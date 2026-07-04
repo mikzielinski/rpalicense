@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>Ops.Runtime.Seed</PackageId>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>Private</Authors>
     <Description>Runtime bootstrap profile provider.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

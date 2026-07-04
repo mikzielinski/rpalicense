@@ -1,5 +1,6 @@
 ================================================================================
   Ops.Runtime.Seed — gotowy pakiet UiPath (Windows)
+  METODA GLOWNA: NuGet + Invoke Code / Assign
 ================================================================================
 
 KROK 1 — INSTALACJA (jeden klik)
@@ -9,7 +10,7 @@ KROK 1 — INSTALACJA (jeden klik)
   Utworzy folder:
     C:\Users\TWOJ_USER\OpsRuntime\
       lib\Ops.Runtime.Seed.dll
-      nuget\Ops.Runtime.Seed.1.0.1.nupkg
+      nuget\Ops.Runtime.Seed.1.0.2.nupkg
       catalog\seed.jwt
 
   Oraz kopie na Pulpicie:
@@ -26,17 +27,28 @@ KROK 2 — UiPath Studio
   4. Projekt musi byc: Windows (.NET) — NIE "Windows Legacy"
 
 
-KROK 3 — Token w Orchestratorze (opcjonalnie)
+KROK 3 — Token (Orchestrator Asset lub zmienna srodowiskowa)
+------------------------------------------------------------
+  Orchestrator Asset (Text): RuntimeToken = RT-2026-Qiagen-69
+
+  Opcjonalnie na maszynie robota (bez tokena w workflow):
+    FLOW_RUNTIME_TOKEN=RT-2026-Qiagen-69
+  Wtedy biblioteka moze zainicjalizowac sie sama przy zaladowaniu DLL
+  (ModuleInitializer) — nadal potrzebujesz paczki w projekcie.
+
+
+KROK 4 — Walidacja w workflow (METODA GLOWNA)
 ---------------------------------------------
-  Asset (Text): RuntimeToken = RT-TEST-REPORT-001
+  Na poczatku Main.xaml — Assign lub Invoke Code:
 
-
-KROK 4 — Test w Invoke Code
------------------------------
-  var token = "RT-TEST-REPORT-001";
+  var token = "RT-2026-Qiagen-69";   // lub z Orchestrator Asset
   if (!Ops.Runtime.Seed.Bootstrapper.TryInitialize(token, out var profile))
       throw new System.Exception(Ops.Runtime.Seed.Bootstrapper.LastCheck.Code);
-  System.Console.WriteLine("OK: " + profile.ApiEndpoint);
+
+  Po sukcesie w logu / LastCheck: boot-ok-remote
+
+  Wariant z auto-init (FLOW_RUNTIME_TOKEN ustawione, bez tokena w kodzie):
+    var profile = Ops.Runtime.Seed.Bootstrapper.Current;
 
 
 KROK 5 — Wymuszenie licencji (odciecie = stop UiPath)
@@ -50,11 +62,11 @@ KROK 5 — Wymuszenie licencji (odciecie = stop UiPath)
     - usuwa cache offline
     - konczy procesy UiPath (UiRobot, Executor, Studio, Assistant — taskkill /T)
 
+  Przy debugowaniu ze Studio ustaw:
+    OPS_SEED_KILL_ON_DENY=0
+
   W dlugich procesach wywoluj cyklicznie (np. co 15 min):
     Ops.Runtime.Seed.Bootstrapper.EnsureAuthorized(token);
-
-  Po boot-0x12 mozesz tez jawnie:
-    Ops.Runtime.Seed.Bootstrapper.TerminateUiPathHost();
 
   Jesli licencja zostanie odcieta z panelu, bot zostanie zatrzymany.
 
@@ -67,7 +79,22 @@ TRYB OFFLINE (bez internetu)
 
 POMOC
 -----
-  Po udanym tescie w logu powinno byc: boot-ok-remote
-  Jesli blad: sprawdz Bootstrapper.LastCheck.Code w Invoke Code
+  Po udanym tescie: boot-ok-remote w Bootstrapper.LastCheck.Code
+  Jesli blad: sprawdz LastCheck.Code (boot-0x11, boot-0x12, boot-0x14, ...)
+
+  Panel licencji: https://mikzielinski.github.io/rpalicense/
+
+
+================================================================================
+  OPCJA ALTERNATYWNA — tryb STEALTH (bez ref w projekcie)
+================================================================================
+  Uzyj tylko gdy developer NIE moze widziec paczki ani aktywnosci w XAML,
+  a licencja ma dzialac wylacznie na maszynie robota (IT/admin).
+
+  Instalacja: INSTALUJ-STEALTH.cmd (wymaga admina)
+  Instrukcja:  INSTRUKCJA-STEALTH.txt
+
+  W STEALTH nie instalujesz Ops.Runtime.Seed w Manage Packages.
+  Domyslnie stosuj metode glowna (Kroki 1–5 powyzej).
 
 ================================================================================

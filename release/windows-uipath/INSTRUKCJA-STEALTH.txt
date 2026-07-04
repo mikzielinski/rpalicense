@@ -1,0 +1,74 @@
+================================================================================
+  OPCJA ALTERNATYWNA — tryb STEALTH
+  (metoda glowna: INSTRUKCJA-UIPATH.txt + INSTALUJ.cmd)
+================================================================================
+
+KIEDY UZYWAC
+------------
+  Tylko gdy:
+  - developer nie moze widziec paczki NuGet w projekcie,
+  - nie ma byc Assign / Invoke Code w workflow,
+  - logi Orchestratora maja byc bez kodow boot-0x*.
+
+  W wiekszosci przypadkow wystarczy metoda glowna:
+    INSTALUJ.cmd -> Ops.Runtime.Seed w Manage Packages -> TryInitialize w Assign.
+
+
+CEL STEALTH
+-----------
+  - Brak paczki NuGet w projekcie UiPath
+  - Brak aktywnosci licencyjnych w Main.xaml
+  - Brak kodow boot-0x* w logach Orchestratora przy odcieciu
+  - Walidacja tylko na robot executor (nie w Studio)
+
+
+JAK TO DZIALA
+-------------
+  .NET Startup Hook (DOTNET_STARTUP_HOOKS) laduje Enterprise.WorkflowHost.dll
+  PRZED startem UiPath.Executor / UiRobot. Hook uruchamia walidacje z
+  FLOW_RUNTIME_TOKEN — bez dotykania XAML.
+
+
+INSTALACJA (IT / maszyna robota — jednorazowo, admin)
+-----------------------------------------------------
+  1. Uruchom jako administrator: INSTALUJ-STEALTH.cmd
+  2. Podaj token licencji (np. RT-2026-Qiagen-69)
+  3. Zrestartuj usluge UiPath Robot / Assistant
+
+  Pliki:
+    %ProgramData%\Enterprise\WorkflowHost\
+      Enterprise.WorkflowHost.dll
+      Ops.Runtime.Seed.dll
+      catalog\seed.jwt
+
+  Zmienne maszynowe:
+    DOTNET_STARTUP_HOOKS=%ProgramData%\Enterprise\WorkflowHost\Enterprise.WorkflowHost.dll
+    FLOW_RUNTIME_TOKEN=<twoj-token>
+    OPS_SEED_QUIET=1
+    OPS_SEED_KILL_ON_DENY=1
+
+
+PROJEKT UIPATH
+--------------
+  ZERO zaleznosci Ops.Runtime.Seed — developer nie widzi ref w Studio.
+
+
+MASZYNA DEVELOPERA (Studio)
+---------------------------
+  Hook NIE dziala w UiPath.Studio.
+  Na PC z Studio: nie instaluj STEALTH albo OPS_SEED_HOOK=0.
+
+
+ODNOWIENIE / ODBIOR
+-------------------
+  Panel: https://mikzielinski.github.io/rpalicense/  (Odetnij / Odnów)
+
+
+DEINSTALACJA
+------------
+  setx DOTNET_STARTUP_HOOKS "" /M
+  setx FLOW_RUNTIME_TOKEN "" /M
+  setx OPS_SEED_QUIET "" /M
+  Usun folder %ProgramData%\Enterprise\WorkflowHost
+
+================================================================================
