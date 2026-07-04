@@ -219,43 +219,92 @@ async function publishAll(options = {}) {
     setStatus("publishStatus", msg, "warn");
     return { ok: false, error: msg };
   }
-  if (!catalog.entries.length) {
-    const msg = "Katalog jest pusty — utwórz licencję lub odśwież z serwera.";
-    setStatus("publishStatus", msg, "warn");
-    return { ok: false, error: msg };
-  }
+
+  const mutation = options.mutation ?? null;
+  const maxAttempts = 8;
 
   setPublishing(true);
-  setStatus("publishStatus", "Publikuję seed.jwt na GitHub…", "");
+
   try {
-    await resealAllEntries();
-    const jwt = await buildSeedJwt(catalog);
-    const seedResult = await publishGitHubFile(
-      state.settings.ghSeedPath,
-      `${jwt}\n`,
-      options.commitMessage ?? "Update seed.jwt (panel)"
-    );
-    appendAudit("publish", null, "ok", `seed.jwt → commit ${seedResult.sha?.slice(0, 7) ?? "ok"}`);
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        let seedSha = null;
 
-    try {
-      await publishAuditLog();
-    } catch (auditError) {
-      appendAudit("publish-audit", null, "warn", auditError.message);
+        if (publishReady()) {
+          const meta = await fetchGitHubFileMeta(state.settings.ghSeedPath);
+          seedSha = meta.sha;
+          if (mutation) {
+            catalog = await unwrapSeedJwt(meta.text);
+            applyCatalogMutation(mutation);
+          } else if (!state.dirty) {
+            catalog = await unwrapSeedJwt(meta.text);
+          }
+        }
+
+        if (mutation && mutation.mode !== "create" && mutation.mode !== "delete") {
+          if (!catalog.entries.some((e) => e.tokenId === mutation.tokenId)) {
+            throw new Error(`Token ${mutation.tokenId} nie istnieje w katalogu na serwerze.`);
+          }
+        }
+
+        if (!catalog.entries.length) {
+          const msg = "Katalog jest pusty — utwórz licencję lub odśwież z serwera.";
+          setStatus("publishStatus", msg, "warn");
+          return { ok: false, error: msg };
+        }
+
+        const statusMsg =
+          attempt === 0
+            ? "Publikuję seed.jwt na GitHub…"
+            : `Konflikt wersji — ponawiam publikację (${attempt + 1}/${maxAttempts})…`;
+        setStatus("publishStatus", statusMsg, attempt > 0 ? "warn" : "");
+
+        await resealAllEntries();
+        const jwt = await buildSeedJwt(catalog);
+        const seedResult = await putGitHubFileOnce(
+          state.settings.ghSeedPath,
+          `${jwt}\n`,
+          options.commitMessage ?? "Update seed.jwt (panel)",
+          seedSha
+        );
+
+        if (mutation) {
+          appendAuditForMutation(mutation);
+        }
+        appendAudit("publish", null, "ok", `seed.jwt → commit ${seedResult.sha?.slice(0, 7) ?? "ok"}`);
+
+        try {
+          await publishAuditLog();
+        } catch (auditError) {
+          appendAudit("publish-audit", null, "warn", auditError.message);
+        }
+
+        state.dirty = false;
+        const msg = `Opublikowano seed.jwt (commit ${seedResult.sha?.slice(0, 7) ?? "?"}). Pages za ~1–2 min.`;
+        setStatus("publishStatus", msg, "ok");
+        setHeader(`Opublikowano ${catalog.entries.length} licencji na serwerze.`, "ok");
+        renderAll();
+        return { ok: true };
+      } catch (error) {
+        const isConflict = String(error.message).includes("HTTP 409");
+        if (isConflict && attempt < maxAttempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+          continue;
+        }
+        throw error;
+      }
     }
 
-    state.dirty = false;
-    const msg = `Opublikowano seed.jwt (commit ${seedResult.sha?.slice(0, 7) ?? "?"}). Pages za ~1–2 min.`;
-    setStatus("publishStatus", msg, "ok");
-    setHeader(`Opublikowano ${catalog.entries.length} licencji na serwerze.`, "ok");
-    renderAll();
-    try {
-      await syncCatalogFromGitHubApi();
-      renderAll();
-    } catch {
-      // Pages/API lag — publish succeeded; local catalog already matches what we sent.
-    }
-    return { ok: true };
+    throw new Error("Przekroczono limit prób publikacji.");
   } catch (error) {
+    if (publishReady()) {
+      try {
+        await syncCatalogFromGitHubApi();
+        renderAll();
+      } catch {
+        // keep local state if resync fails
+      }
+    }
     const msg = `Błąd publikacji: ${error.message}`;
     setStatus("publishStatus", msg, "bad");
     appendAudit("publish", null, "error", error.message);
@@ -263,6 +312,40 @@ async function publishAll(options = {}) {
     return { ok: false, error: error.message };
   } finally {
     setPublishing(false);
+  }
+}
+
+function applyCatalogMutation(mutation) {
+  const { mode, tokenId, entry: newEntry } = mutation;
+  if (mode === "create") {
+    if (newEntry && !catalog.entries.some((e) => e.tokenId === newEntry.tokenId)) {
+      catalog.entries.push(newEntry);
+    }
+    return;
+  }
+
+  const entry = catalog.entries.find((e) => e.tokenId === tokenId);
+  if (mode === "disable" && entry) {
+    entry.enabled = false;
+  } else if (mode === "renew" && entry) {
+    entry.enabled = true;
+    entry.validToUtc = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  } else if (mode === "delete") {
+    catalog.entries = catalog.entries.filter((e) => e.tokenId !== tokenId);
+  }
+}
+
+function appendAuditForMutation(mutation) {
+  const { mode, tokenId, entry } = mutation;
+  if (mode === "disable") {
+    appendAudit("disable", tokenId, "ok", "Licencja odcięta");
+  } else if (mode === "renew") {
+    const renewed = catalog.entries.find((e) => e.tokenId === tokenId);
+    appendAudit("renew", tokenId, "ok", `Przedłużono do ${renewed?.validToUtc ?? "?"}`);
+  } else if (mode === "delete") {
+    appendAudit("delete", tokenId, "ok", "Usunięto z katalogu");
+  } else if (mode === "create") {
+    appendAudit("create", tokenId, "ok", `Utworzono licencję dla ${entry?.owner ?? "?"}`);
   }
 }
 
@@ -342,7 +425,7 @@ async function testGitHubConnection() {
   }
 }
 
-async function applyChangeAndPublish(actionLabel, tokenId) {
+async function applyChangeAndPublish(actionLabel, tokenId, options = {}) {
   renderAll();
   if (!publishReady()) {
     setStatus(
@@ -353,7 +436,8 @@ async function applyChangeAndPublish(actionLabel, tokenId) {
     return false;
   }
   const result = await publishAll({
-    commitMessage: `Panel: ${actionLabel} ${tokenId}`
+    commitMessage: `Panel: ${actionLabel} ${tokenId}`,
+    mutation: options.mutation ?? null
   });
   if (result.ok) {
     setStatus("publishStatus", `${actionLabel} — opublikowano na serwerze.`, "ok");
@@ -411,12 +495,15 @@ async function createLicense() {
       hosts: hostsRaw,
       agentPrompt: prompt || "Jestes agentem workflow."
     });
-    catalog.entries.push(entry);
-    state.dirty = true;
-    appendAudit("create", tokenId, "ok", `Utworzono licencję dla ${owner}`);
     byId("newTokenId").value = "";
-    const ok = await applyChangeAndPublish("Utworzono", tokenId);
-    setStatus("createStatus", ok ? `Utworzono i opublikowano ${tokenId}.` : `Utworzono lokalnie ${tokenId} — brak publikacji.`, ok ? "ok" : "warn");
+    const ok = await applyChangeAndPublish("Utworzono", tokenId, {
+      mutation: { mode: "create", tokenId, entry }
+    });
+    setStatus(
+      "createStatus",
+      ok ? `Utworzono i opublikowano ${tokenId}.` : `Nie udało się opublikować ${tokenId}.`,
+      ok ? "ok" : "bad"
+    );
   } catch (error) {
     setStatus("createStatus", error.message, "bad");
   }
@@ -460,39 +547,34 @@ async function mutateLicense(tokenId, mode) {
   };
   if (!confirm(verbs[mode])) return;
 
-  if (publishReady()) {
-    setStatus("publishStatus", "Synchronizuję katalog z GitHub przed zmianą…", "");
-    try {
-      await syncCatalogFromGitHubApi();
-      renderAll();
-    } catch (error) {
-      setStatus(
-        "publishStatus",
-        `Nie udało się pobrać aktualnego seed.jwt z GitHub: ${error.message}`,
-        "bad"
-      );
-      return;
+  if (!publishReady()) {
+    const entry = catalog.entries.find((e) => e.tokenId === tokenId);
+    if (!entry && mode !== "delete") return;
+
+    if (mode === "disable" && entry) {
+      entry.enabled = false;
+      appendAudit("disable", tokenId, "ok", "Licencja odcięta (lokalnie)");
+    } else if (mode === "renew" && entry) {
+      entry.enabled = true;
+      entry.validToUtc = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+      appendAudit("renew", tokenId, "ok", `Przedłużono lokalnie do ${entry.validToUtc}`);
+    } else if (mode === "delete") {
+      catalog.entries = catalog.entries.filter((e) => e.tokenId !== tokenId);
+      appendAudit("delete", tokenId, "ok", "Usunięto lokalnie z katalogu");
     }
+    state.dirty = true;
+    renderAll();
+    setStatus(
+      "publishStatus",
+      `${labels[mode]}: zapisano lokalnie. Uzupełnij PAT i kliknij „Zapisz i opublikuj”.`,
+      "warn"
+    );
+    return;
   }
 
-  const entry = catalog.entries.find((e) => e.tokenId === tokenId);
-  if (!entry && mode !== "delete") return;
-
-  if (mode === "disable") {
-    entry.enabled = false;
-    appendAudit("disable", tokenId, "ok", "Licencja odcięta");
-  } else if (mode === "renew") {
-    const plusYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-    entry.enabled = true;
-    entry.validToUtc = plusYear.toISOString();
-    appendAudit("renew", tokenId, "ok", `Przedłużono do ${entry.validToUtc}`);
-  } else if (mode === "delete") {
-    catalog.entries = catalog.entries.filter((e) => e.tokenId !== tokenId);
-    appendAudit("delete", tokenId, "ok", "Usunięto z katalogu");
-  }
-
-  state.dirty = true;
-  await applyChangeAndPublish(labels[mode], tokenId);
+  await applyChangeAndPublish(labels[mode], tokenId, {
+    mutation: { mode, tokenId }
+  });
 }
 
 async function checkLiveStatus() {
@@ -676,11 +758,6 @@ function githubContentsApiUrl(path) {
   return `https://api.github.com/repos/${encodeURIComponent(state.settings.ghOwner)}/${encodeURIComponent(state.settings.ghRepo)}/contents/${encodedPath}`;
 }
 
-function parseConflictExpectedSha(message) {
-  const match = String(message).match(/does not match ([a-f0-9]{40})/i);
-  return match?.[1] ?? null;
-}
-
 async function fetchGitHubFileMeta(path) {
   const apiUrl = githubContentsApiUrl(path);
   const ref = encodeURIComponent(state.settings.ghBranch);
@@ -720,34 +797,35 @@ async function syncCatalogFromGitHubApi() {
   return catalog;
 }
 
-async function publishGitHubFile(path, content, message, attempt = 0, shaOverride = null) {
+async function putGitHubFileOnce(path, content, message, sha) {
   const apiUrl = githubContentsApiUrl(path);
-
-  let sha = shaOverride;
-  if (!sha) {
-    try {
-      const existing = await fetchGitHubFileMeta(path);
-      sha = existing.sha;
-    } catch (error) {
-      if (!String(error.message).includes("HTTP 404")) throw error;
-    }
-  }
-
   const body = {
     message,
     content: toBase64(new TextEncoder().encode(content)),
     branch: state.settings.ghBranch
   };
   if (sha) body.sha = sha;
+  return githubRequest(apiUrl, "PUT", body);
+}
+
+async function publishGitHubFile(path, content, message, attempt = 0) {
+  const apiUrl = githubContentsApiUrl(path);
+
+  let sha = null;
+  try {
+    const existing = await fetchGitHubFileMeta(path);
+    sha = existing.sha;
+  } catch (error) {
+    if (!String(error.message).includes("HTTP 404")) throw error;
+  }
 
   try {
-    return await githubRequest(apiUrl, "PUT", body);
+    return await putGitHubFileOnce(path, content, message, sha);
   } catch (error) {
     const isConflict = String(error.message).includes("HTTP 409");
-    if (isConflict && attempt < 5) {
-      const expectedSha = parseConflictExpectedSha(error.message);
-      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
-      return publishGitHubFile(path, content, message, attempt + 1, expectedSha ?? null);
+    if (isConflict && attempt < 8) {
+      await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+      return publishGitHubFile(path, content, message, attempt + 1);
     }
     if (isConflict) {
       throw new Error(
