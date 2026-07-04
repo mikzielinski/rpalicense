@@ -61,8 +61,10 @@
       <label>Klucz RSA (JWK prywatny — seal)
         <textarea id="cfgSealJwk" rows="4" spellcheck="false" placeholder='{"kty":"RSA","n":"…","e":"…","d":"…"}'></textarea>
       </label>
+      <p id="jwkHint" class="hint">Wymagany pełny JWK (~2400 znaków).</p>
       <div class="actions">
         <button id="btnSaveSettings" type="button">Zapisz ustawienia</button>
+        <button id="btnLoadTestJwk" type="button">Załaduj klucz testowy</button>
         <button id="btnTestGitHub" type="button">Testuj GitHub PAT</button>
       </div>
       <p id="settingsStatus" class="status"></p>
@@ -163,6 +165,6 @@
     <p>Sekrety i klucze są przetwarzane lokalnie w przeglądarce. PAT nie jest wysyłany nigdzie poza GitHub API.</p>
   </footer>
 
-  <script src="./app.js?v=3"></script>
+  <script src="./app.js?v=4"></script>
 </body>
 </html>

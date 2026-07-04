@@ -59,6 +59,7 @@ function loadSettings() {
     state.settings = defaultSettings();
   }
   applySettingsToForm();
+  updateJwkHint();
 }
 
 function saveSettingsFromForm() {
@@ -107,6 +108,8 @@ function bindUi() {
   byId("btnRefreshLive").addEventListener("click", () => refreshFromLive(true));
   byId("btnPublishAll").addEventListener("click", () => publishAll());
   byId("btnTestGitHub").addEventListener("click", testGitHubConnection);
+  byId("btnLoadTestJwk").addEventListener("click", loadTestJwk);
+  byId("cfgSealJwk").addEventListener("input", updateJwkHint);
   byId("btnCreateLicense").addEventListener("click", createLicense);
   byId("btnCheckLive").addEventListener("click", checkLiveStatus);
   byId("btnClearLocalLog").addEventListener("click", () => {
@@ -250,6 +253,61 @@ async function publishAll(options = {}) {
     return { ok: false, error: error.message };
   } finally {
     setPublishing(false);
+  }
+}
+
+function parseSealJwk(raw) {
+  if (!raw?.trim()) {
+    throw new Error("Brak klucza JWK w ustawieniach. Kliknij „Załaduj klucz testowy” lub wklej pełny exportjwk.");
+  }
+  let text = raw.trim().replace(/^\uFEFF/, "");
+  if (text.length < 2000) {
+    throw new Error(
+      `Klucz JWK za krótki (${text.length} znaków). Pełny klucz ma ok. 2400 znaków — wklejony fragment jest ucięty.`
+    );
+  }
+  try {
+    const jwk = JSON.parse(text);
+    if (!jwk.kty || !jwk.n || !jwk.e || !jwk.d) {
+      throw new Error("JWK musi być kluczem prywatnym RSA (pola kty, n, e, d).");
+    }
+    return jwk;
+  } catch (error) {
+    throw new Error(
+      `Nieprawidłowy JWK JSON: ${error.message}. Użyj „Załaduj klucz testowy” lub wklej cały wynik exportjwk jako jedną linię.`
+    );
+  }
+}
+
+function updateJwkHint() {
+  const len = byId("cfgSealJwk").value.trim().length;
+  const el = byId("jwkHint");
+  if (!el) return;
+  if (len === 0) {
+    el.textContent = "Wymagany pełny JWK (~2400 znaków).";
+    el.className = "hint";
+  } else if (len < 2000) {
+    el.textContent = `JWK za krótki: ${len} znaków (prawdopodobnie ucięty przy wklejaniu).`;
+    el.className = "hint bad";
+  } else {
+    el.textContent = `JWK OK: ${len} znaków.`;
+    el.className = "hint ok";
+  }
+}
+
+async function loadTestJwk() {
+  setStatus("settingsStatus", "Ładuję klucz testowy z repo…", "");
+  try {
+    const url =
+      "https://raw.githubusercontent.com/mikzielinski/rpalicense/main/test-fixtures/keys/seal.private.jwk";
+    const jwk = (await fetchText(url)).trim();
+    parseSealJwk(jwk);
+    byId("cfgSealJwk").value = jwk;
+    saveSettingsFromForm();
+    updateJwkHint();
+    setStatus("settingsStatus", "Załadowano klucz testowy. Kliknij Zapisz ustawienia.", "ok");
+  } catch (error) {
+    setStatus("settingsStatus", `Nie udało się załadować JWK: ${error.message}`, "bad");
   }
 }
 
@@ -479,7 +537,7 @@ async function resealAllEntries() {
 }
 
 async function signEntry(entry) {
-  const jwk = JSON.parse(state.settings.sealJwk);
+  const jwk = parseSealJwk(state.settings.sealJwk);
   const key = await crypto.subtle.importKey(
     "jwk",
     jwk,
@@ -497,7 +555,7 @@ async function signEntry(entry) {
 }
 
 async function verifyEntrySeal(entry) {
-  const jwk = JSON.parse(state.settings.sealJwk);
+  const jwk = parseSealJwk(state.settings.sealJwk);
   const publicJwk = { kty: jwk.kty, n: jwk.n, e: jwk.e };
   const key = await crypto.subtle.importKey(
     "jwk",

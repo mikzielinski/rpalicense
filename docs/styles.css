@@ -240,6 +240,20 @@ tbody tr:hover {
   color: var(--bad);
 }
 
+.hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 4px 0 8px;
+}
+
+.hint.ok {
+  color: var(--good);
+}
+
+.hint.bad {
+  color: var(--bad);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
