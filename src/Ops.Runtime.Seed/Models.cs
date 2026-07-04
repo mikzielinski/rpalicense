@@ -5,7 +5,7 @@ namespace Ops.Runtime.Seed;
 internal sealed class CatalogDocument
 {
     [JsonPropertyName("entries")]
-    public List<CatalogEntry> Entries { get; init; } = [];
+    public List<CatalogEntry> Entries { get; init; } = new();
 }
 
 internal sealed class CatalogEntry
@@ -23,7 +23,7 @@ internal sealed class CatalogEntry
     public bool Enabled { get; init; }
 
     [JsonPropertyName("hosts")]
-    public List<string> Hosts { get; init; } = [];
+    public List<string> Hosts { get; init; } = new();
 
     [JsonPropertyName("blob")]
     public string Blob { get; init; } = string.Empty;

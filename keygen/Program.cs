@@ -21,6 +21,10 @@ try
             return RunWrapJwt(args);
         case "exportjwk":
             return RunExportJwk(args);
+        case "reseal":
+            return RunReseal(args);
+        case "unwrapjwt":
+            return RunUnwrapJwt(args);
         default:
             PrintHelp();
             return 1;
@@ -208,6 +212,109 @@ static int RunExportJwk(string[] args)
     return 0;
 }
 
+static int RunReseal(string[] args)
+{
+    if (args.Length != 3)
+    {
+        Console.WriteLine("usage: reseal <catalogJsonPath> <privateKeyPemPath>");
+        return 1;
+    }
+
+    var catalogJsonPath = args[1];
+    var privateKeyPemPath = args[2];
+    var privatePem = File.ReadAllText(privateKeyPemPath);
+    var catalogJson = File.ReadAllText(catalogJsonPath);
+    using var doc = JsonDocument.Parse(catalogJson);
+    if (!doc.RootElement.TryGetProperty("entries", out var entriesEl) || entriesEl.ValueKind != JsonValueKind.Array)
+    {
+        throw new InvalidOperationException("catalog must contain entries[]");
+    }
+
+    var entries = new List<CatalogEntry>();
+    foreach (var item in entriesEl.EnumerateArray())
+    {
+        var entry = JsonSerializer.Deserialize<CatalogEntry>(item.GetRawText(), JsonOptions.Instance)
+            ?? throw new InvalidOperationException("invalid catalog entry");
+        entry.Seal = Sign(Canonical(entry), privatePem);
+        entries.Add(entry);
+    }
+
+    Console.WriteLine(JsonSerializer.Serialize(new { entries }, JsonOptions.Instance));
+    return 0;
+}
+
+static int RunUnwrapJwt(string[] args)
+{
+    if (args.Length != 6)
+    {
+        Console.WriteLine("usage: unwrapjwt <jwtPathOrDash> <jwtSigningKey> <envelopePepper> <issuer> <audience>");
+        return 1;
+    }
+
+    var jwt = args[1] == "-"
+        ? Console.In.ReadToEnd().Trim()
+        : File.ReadAllText(args[1]).Trim();
+    var jwtSigningKey = args[2];
+    var envelopePepper = args[3];
+    var issuer = args[4];
+    var audience = args[5];
+
+    var parts = jwt.Split('.', StringSplitOptions.TrimEntries);
+    if (parts.Length != 3)
+    {
+        throw new InvalidOperationException("invalid jwt");
+    }
+
+    var signed = $"{parts[0]}.{parts[1]}";
+    if (!VerifyHs256(signed, parts[2], jwtSigningKey))
+    {
+        throw new InvalidOperationException("invalid jwt signature");
+    }
+
+    var payloadJson = Encoding.UTF8.GetString(Base64UrlDecode(parts[1]));
+    var claims = JsonSerializer.Deserialize<JwtEnvelopeClaims>(payloadJson, JsonOptions.Instance)
+        ?? throw new InvalidOperationException("invalid jwt payload");
+    if (!string.Equals(claims.Issuer, issuer, StringComparison.Ordinal) ||
+        !string.Equals(claims.Audience, audience, StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("iss/aud mismatch");
+    }
+
+    var envelopeKey = DeriveAesKey(audience, envelopePepper);
+    var catalogJson = Decrypt(claims.Blob, claims.Nonce, claims.Tag, envelopeKey);
+    Console.WriteLine(catalogJson);
+    return 0;
+}
+
+static bool VerifyHs256(string message, string signatureB64Url, string signingKey)
+{
+    var expected = SignHs256(message, signingKey);
+    return string.Equals(expected, signatureB64Url, StringComparison.Ordinal);
+}
+
+static string Decrypt(string cipherB64, string nonceB64, string tagB64, byte[] key)
+{
+    var cipher = Convert.FromBase64String(cipherB64);
+    var nonce = Convert.FromBase64String(nonceB64);
+    var tag = Convert.FromBase64String(tagB64);
+    var plain = new byte[cipher.Length];
+    using var aes = new AesGcm(key);
+    aes.Decrypt(nonce, cipher, tag, plain);
+    return Encoding.UTF8.GetString(plain);
+}
+
+static byte[] Base64UrlDecode(string value)
+{
+    var s = value.Replace('-', '+').Replace('_', '/');
+    var padding = 4 - (s.Length % 4);
+    if (padding is > 0 and < 4)
+    {
+        s += new string('=', padding);
+    }
+
+    return Convert.FromBase64String(s);
+}
+
 static string Canonical(CatalogEntry entry)
 {
     var hosts = entry.Hosts.Count == 0
@@ -283,6 +390,8 @@ static void PrintHelp()
     Console.WriteLine("  issue <privateKeyPemPath> <pepper> <tokenId> <owner> <validToUtc> <hostsCsv> <payloadJsonPath>");
     Console.WriteLine("  wrapjwt <catalogJsonPath> <jwtSigningKey> <envelopePepper> <issuer> <audience> <expUtc>");
     Console.WriteLine("  exportjwk <privateKeyPemPath>");
+    Console.WriteLine("  reseal <catalogJsonPath> <privateKeyPemPath>");
+    Console.WriteLine("  unwrapjwt <jwtPathOrDash> <jwtSigningKey> <envelopePepper> <issuer> <audience>");
 }
 
 internal sealed class CatalogEntry
@@ -300,7 +409,7 @@ internal sealed class CatalogEntry
     public bool Enabled { get; init; }
 
     [JsonPropertyName("hosts")]
-    public List<string> Hosts { get; init; } = [];
+    public List<string> Hosts { get; init; } = new();
 
     [JsonPropertyName("blob")]
     public string Blob { get; init; } = string.Empty;

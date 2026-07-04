@@ -18,28 +18,11 @@ public static class Bootstrapper
     {
         Success = false,
         UsedCache = false,
-        SourceUrl = SourceUrl,
+        SourceUrl = BootstrapperSettings.SourceUrl,
         CheckedAtUtc = DateTimeOffset.MinValue,
         Code = "boot-0x00",
         Notes = "not-initialized"
     };
-
-    // Własne wartości podmień przed publikacją biblioteki.
-    private const string SourceUrl = "https://example.github.io/assets/seed.jwt";
-    private const string SourceToken = "";
-    private const string Pepper = "replace-with-long-random-pepper";
-    private const string EnvelopePepper = "replace-with-long-random-envelope-pepper";
-    private const string EnvelopeSigningKey = "replace-with-long-random-envelope-signing-key";
-    private const string EnvelopeIssuer = "https://example.github.io";
-    private const string EnvelopeAudience = "ops-runtime-seed";
-    private const bool SourceUsesJwtEnvelope = true;
-    private const string PublicSealKeyPem = """
------BEGIN PUBLIC KEY-----
-REPLACE_WITH_RSA_PUBLIC_KEY
------END PUBLIC KEY-----
-""";
-
-    private const int GraceDays = 7;
 
     public static RuntimeProfile Current
     {
@@ -68,25 +51,39 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         string? machineAlias = null,
         CancellationToken cancellationToken = default)
     {
+        BootstrapperSettings.ApplyFromEnvironment();
+
         if (string.IsNullOrWhiteSpace(runtimeToken))
         {
             throw new InvalidOperationException("boot-0x01");
         }
 
         var machine = (machineAlias ?? Environment.MachineName).Trim().ToUpperInvariant();
-        var cache = new CacheStore();
-        var key = Crypto.DeriveAesKey(runtimeToken, Pepper);
-        var tokenHash = Crypto.HashToken(runtimeToken, Pepper);
+        var cache = new CacheStore(BootstrapperSettings.CachePathOverride);
+        var key = Crypto.DeriveAesKey(runtimeToken, BootstrapperSettings.Pepper);
+        var tokenHash = Crypto.HashToken(runtimeToken, BootstrapperSettings.Pepper);
 
         try
         {
-            var client = new CatalogClient(Http);
-            var sourceBody = await client.LoadRawAsync(SourceUrl, SourceToken, cancellationToken).ConfigureAwait(false);
+            var sourceBody = BootstrapperSettings.CatalogLoaderOverride is not null
+                ? await BootstrapperSettings.CatalogLoaderOverride(BootstrapperSettings.SourceUrl).ConfigureAwait(false)
+                : await new CatalogClient(Http).LoadRawAsync(
+                    BootstrapperSettings.SourceUrl,
+                    BootstrapperSettings.SourceToken,
+                    cancellationToken).ConfigureAwait(false);
             var catalog = ParseCatalog(sourceBody);
             var entry = ResolveEntry(catalog, runtimeToken, machine);
             var profile = MaterializeProfile(entry, runtimeToken, key);
 
-            PersistCache(cache, profile, tokenHash, machine, key);
+            try
+            {
+                PersistCache(cache, profile, tokenHash, machine, key);
+            }
+            catch
+            {
+                // Cache is best-effort; remote validation already succeeded.
+            }
+
             lock (Gate)
             {
                 _current = profile;
@@ -101,7 +98,7 @@ REPLACE_WITH_RSA_PUBLIC_KEY
 
             return profile;
         }
-        catch (Exception ex) when (TryReadGraceCache(cache, tokenHash, machine, key, out var cached))
+        catch (Exception ex) when (CanUseGraceCache(ex) && TryReadGraceCache(cache, tokenHash, machine, key, out var cached))
         {
             lock (Gate)
             {
@@ -153,6 +150,25 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         }
     }
 
+    internal static void ResetForTesting()
+    {
+        lock (Gate)
+        {
+            _current = null;
+            _lastCheck = new ValidationSnapshot
+            {
+                Success = false,
+                UsedCache = false,
+                SourceUrl = BootstrapperSettings.SourceUrl,
+                CheckedAtUtc = DateTimeOffset.MinValue,
+                Code = "boot-0x00",
+                Notes = "not-initialized"
+            };
+        }
+
+        BootstrapperDiagnostics.Reset();
+    }
+
     private static CatalogEntry ResolveEntry(CatalogDocument catalog, string runtimeToken, string machine)
     {
         var entry = catalog.Entries.FirstOrDefault(e => string.Equals(e.TokenId, runtimeToken, StringComparison.Ordinal));
@@ -182,7 +198,7 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         }
 
         var canonical = Crypto.Canonical(entry);
-        if (!Crypto.VerifySeal(canonical, entry.Seal, PublicSealKeyPem))
+        if (!Crypto.VerifySeal(canonical, entry.Seal, BootstrapperSettings.PublicSealKeyPem))
         {
             throw new InvalidOperationException("boot-0x16");
         }
@@ -193,7 +209,7 @@ REPLACE_WITH_RSA_PUBLIC_KEY
     private static CatalogDocument ParseCatalog(string sourceBody)
     {
         var body = sourceBody.Trim();
-        if (!SourceUsesJwtEnvelope)
+        if (!BootstrapperSettings.SourceUsesJwtEnvelope)
         {
             return JsonSerializer.Deserialize<CatalogDocument>(body, Json.Options)
                 ?? throw new InvalidOperationException("boot-0x51");
@@ -230,7 +246,7 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         }
 
         var signed = $"{parts[0]}.{parts[1]}";
-        if (!Crypto.VerifyHs256(signed, parts[2], EnvelopeSigningKey))
+        if (!Crypto.VerifyHs256(signed, parts[2], BootstrapperSettings.EnvelopeSigningKey))
         {
             throw new InvalidOperationException("boot-0x53");
         }
@@ -247,12 +263,12 @@ REPLACE_WITH_RSA_PUBLIC_KEY
             throw new InvalidOperationException("boot-0x54");
         }
 
-        if (!string.Equals(claims.Issuer, EnvelopeIssuer, StringComparison.Ordinal))
+        if (!string.Equals(claims.Issuer, BootstrapperSettings.EnvelopeIssuer, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("boot-0x55");
         }
 
-        if (!string.Equals(claims.Audience, EnvelopeAudience, StringComparison.Ordinal))
+        if (!string.Equals(claims.Audience, BootstrapperSettings.EnvelopeAudience, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("boot-0x56");
         }
@@ -268,7 +284,7 @@ REPLACE_WITH_RSA_PUBLIC_KEY
             throw new InvalidOperationException("boot-0x58");
         }
 
-        var envelopeKey = Crypto.DeriveAesKey(EnvelopeAudience, EnvelopePepper);
+        var envelopeKey = Crypto.DeriveAesKey(BootstrapperSettings.EnvelopeAudience, BootstrapperSettings.EnvelopePepper);
         var catalogJson = Crypto.Decrypt(claims.Blob, claims.Nonce, claims.Tag, envelopeKey);
         return JsonSerializer.Deserialize<CatalogDocument>(catalogJson, Json.Options)
             ?? throw new InvalidOperationException("boot-0x59");
@@ -312,7 +328,7 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         }
 
         var now = DateTimeOffset.UtcNow;
-        if (now > record.ValidatedAtUtc.AddDays(GraceDays) || now > record.ValidToUtc)
+        if (now > record.ValidatedAtUtc.AddDays(BootstrapperSettings.GraceDays) || now > record.ValidToUtc)
         {
             return false;
         }
@@ -357,6 +373,9 @@ REPLACE_WITH_RSA_PUBLIC_KEY
     [ModuleInitializer]
     internal static void ModuleInit()
     {
+        BootstrapperSettings.ApplyFromEnvironment();
+        BootstrapperDiagnostics.ModuleInitAttempted = true;
+
         var token = Environment.GetEnvironmentVariable("FLOW_RUNTIME_TOKEN")
             ?? Environment.GetEnvironmentVariable("APP_BOOT_TOKEN");
 
@@ -368,11 +387,22 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         try
         {
             _ = Initialize(token);
+            BootstrapperDiagnostics.ModuleInitSucceeded = true;
         }
-        catch
+        catch (Exception ex)
         {
+            BootstrapperDiagnostics.ModuleInitFailure = ex.ToString();
             // Brak jawnego komunikatu: host zdecyduje co zrobić przy odczycie Current.
         }
+    }
+
+    private static bool CanUseGraceCache(Exception ex)
+    {
+        var code = ExtractCode(ex);
+        return code is not (
+            "boot-0x11" or "boot-0x12" or "boot-0x14" or "boot-0x15" or "boot-0x16"
+            or "boot-0x52" or "boot-0x53" or "boot-0x54" or "boot-0x55" or "boot-0x56"
+            or "boot-0x57" or "boot-0x58" or "boot-0x59" or "boot-0x5A");
     }
 
     private static ValidationSnapshot NewSnapshot(
@@ -387,7 +417,7 @@ REPLACE_WITH_RSA_PUBLIC_KEY
         {
             Success = success,
             UsedCache = usedCache,
-            SourceUrl = SourceUrl,
+            SourceUrl = BootstrapperSettings.SourceUrl,
             TokenId = tokenId,
             Machine = machine,
             CheckedAtUtc = DateTimeOffset.UtcNow,
