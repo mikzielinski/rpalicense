@@ -840,8 +840,7 @@ async function githubRequest(url, method, body, options = {}) {
   const s = state.settings;
   const headers = {
     Authorization: `Bearer ${s.ghToken}`,
-    Accept: "application/vnd.github+json",
-    "Cache-Control": "no-cache"
+    Accept: "application/vnd.github+json"
   };
   if (body) headers["Content-Type"] = "application/json";
 
