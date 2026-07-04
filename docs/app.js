@@ -636,13 +636,16 @@ async function publishAuditLog() {
   );
 }
 
-async function publishGitHubFile(path, content, message) {
+async function publishGitHubFile(path, content, message, attempt = 0) {
   const encodedPath = path.split("/").map(encodeURIComponent).join("/");
   const apiUrl = `https://api.github.com/repos/${encodeURIComponent(state.settings.ghOwner)}/${encodeURIComponent(state.settings.ghRepo)}/contents/${encodedPath}`;
 
   let sha = null;
   try {
-    const existing = await githubRequest(`${apiUrl}?ref=${encodeURIComponent(state.settings.ghBranch)}`, "GET");
+    const existing = await githubRequest(
+      `${apiUrl}?ref=${encodeURIComponent(state.settings.ghBranch)}`,
+      "GET"
+    );
     sha = existing.sha ?? null;
   } catch (error) {
     if (!String(error.message).includes("HTTP 404")) throw error;
@@ -655,7 +658,21 @@ async function publishGitHubFile(path, content, message) {
   };
   if (sha) body.sha = sha;
 
-  return githubRequest(apiUrl, "PUT", body);
+  try {
+    return await githubRequest(apiUrl, "PUT", body);
+  } catch (error) {
+    const isConflict = String(error.message).includes("HTTP 409");
+    if (isConflict && attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+      return publishGitHubFile(path, content, message, attempt + 1);
+    }
+    if (isConflict) {
+      throw new Error(
+        "HTTP 409 — plik zmienił się na GitHubie w trakcie zapisu. Kliknij „Odśwież z serwera”, potem ponów publikację."
+      );
+    }
+    throw error;
+  }
 }
 
 async function githubRequest(url, method, body) {
@@ -682,7 +699,7 @@ async function githubRequest(url, method, body) {
   }
 
   if (!resp.ok) {
-    const ghMsg = json?.message ?? text?.slice(0, 200) ?? resp.statusText;
+    const ghMsg = json?.message ?? text?.slice(0, 300) ?? resp.statusText;
     if (resp.status === 401) {
       throw new Error(`HTTP 401 — PAT nieprawidłowy lub wygasł. Wygeneruj nowy token z uprawnieniem repo (Contents: write).`);
     }
@@ -692,10 +709,20 @@ async function githubRequest(url, method, body) {
     if (resp.status === 404) {
       throw new Error(`HTTP 404 — nie znaleziono: ${ghMsg}. Sprawdź owner/repo/branch (${s.ghBranch}).`);
     }
+    if (resp.status === 409) {
+      throw new Error(`HTTP 409: ${ghMsg}`);
+    }
     throw new Error(`HTTP ${resp.status}: ${ghMsg}`);
   }
 
-  return json?.content ? { sha: json.content.sha, commit: json.commit?.sha } : json ?? {};
+  // GET /contents → sha na poziomie root; PUT → czasem w content.sha
+  if (json?.sha) {
+    return { sha: json.sha, commit: json.commit?.sha };
+  }
+  if (json?.content && typeof json.content === "object" && json.content.sha) {
+    return { sha: json.content.sha, commit: json.commit?.sha };
+  }
+  return json ?? {};
 }
 
 function appendAudit(action, tokenId, code, notes) {
