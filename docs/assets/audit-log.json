@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "atUtc": "2026-07-04T19:39:58.838Z",
+      "who": "mikolaj",
+      "action": "publish",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "seed.jwt → commit 1dbeb96"
+    },
+    {
       "atUtc": "2026-07-04T19:39:55.517Z",
       "who": "mikolaj",
       "action": "publish",
