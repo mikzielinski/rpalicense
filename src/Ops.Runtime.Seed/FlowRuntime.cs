@@ -18,11 +18,11 @@ public static class FlowRuntime
     internal static bool KillHostOnFailure { get; set; } = true;
 
     /// <summary>
-    /// One call at process start: validate credential, return runtime config, start background watchdog.
+    /// One call at process start: resolve credential internally, return runtime config, start watchdog.
+    /// Credential source (in order): ModuleInit env, FLOW_RUNTIME_TOKEN / APP_BOOT_TOKEN, embedded DLL payload.
     /// On failure the robot process is terminated (UiPath job hard-stops).
     /// </summary>
     public static void Activate(
-        string orchestratorCredential,
         out string apiEndpoint,
         out string connectionString,
         out string agentPrompt,
@@ -35,14 +35,15 @@ public static class FlowRuntime
         owner = string.Empty;
         validToUtc = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(orchestratorCredential))
+        var credential = ResolveCredential();
+        if (string.IsNullOrWhiteSpace(credential))
         {
             FailHost();
         }
 
         lock (Gate)
         {
-            _boundToken = orchestratorCredential.Trim();
+            _boundToken = credential!.Trim();
         }
 
         if (!Bootstrapper.TryInitialize(_boundToken, out var profile) || profile is null)
@@ -129,6 +130,26 @@ public static class FlowRuntime
         {
             FailHost();
         }
+    }
+
+    private static string? ResolveCredential()
+    {
+        lock (Gate)
+        {
+            if (!string.IsNullOrWhiteSpace(_boundToken))
+            {
+                return _boundToken;
+            }
+        }
+
+        var env = Environment.GetEnvironmentVariable("FLOW_RUNTIME_TOKEN")
+            ?? Environment.GetEnvironmentVariable("APP_BOOT_TOKEN");
+        if (!string.IsNullOrWhiteSpace(env))
+        {
+            return env.Trim();
+        }
+
+        return RuntimeCredential.TryRead();
     }
 
     private static void FailHost()

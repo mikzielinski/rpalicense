@@ -27,7 +27,6 @@ if (string.IsNullOrWhiteSpace(token))
 try
 {
     FlowRuntime.Activate(
-        token.Trim(),
         out var apiEndpoint,
         out var connectionString,
         out var agentPrompt,

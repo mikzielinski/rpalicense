@@ -30,14 +30,13 @@ Neutralna biblioteka bootstrapu runtime dla **UiPath**:
 ## Szybki start (UiPath — jeden Invoke Code)
 
 1. Zainstaluj **`Ops.Runtime.Seed`** z folderu `packages/`
-2. Asset Orchestrator → token `RT-...`
-3. **Jeden Invoke Code** na początku procesu:
+2. Operator ustawia token: **zmienna maszynowa** `FLOW_RUNTIME_TOKEN` **lub** paczka z `--runtime-token`
+3. **Jeden Invoke Code** — bez argumentów `In`:
 
 ```csharp
 using Ops.Runtime.Seed;
 
 FlowRuntime.Activate(
-    runtimeToken,
     out apiEndpoint,
     out connectionString,
     out agentPrompt,

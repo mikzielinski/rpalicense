@@ -25,7 +25,7 @@ Ten dokument opisuje krok po kroku, jak podłączyć bibliotekę `Ops.Runtime.Se
 ## 1. Jak to działa
 
 ```
-Orchestrator Asset (RT-...)     GitHub Pages (seed.jwt)
+Env maszynowy / DLL per klient     GitHub Pages (seed.jwt)
          |                              |
          v                              v
    UiPath Robot  ---------------->  FlowRuntime (publiczne API)
@@ -35,12 +35,13 @@ Orchestrator Asset (RT-...)     GitHub Pages (seed.jwt)
                               ApiEndpoint, ConnectionString, ...
 ```
 
-1. Bot pobiera **token** (`RT-2026-CLIENT-001`) z Orchestrator Asset.
-2. Biblioteka pobiera **`seed.jwt`** z GitHub Pages (statyczny URL).
-3. Weryfikuje podpis envelope (HS256), odszyfrowuje katalog, weryfikuje wpis klienta (`seal`, RSA).
-4. Odszyfrowuje payload klienta kluczem zależnym od `tokenId + pepper`.
-5. Zwraca dane operacyjne przez **parametry `Out`** z **`FlowRuntime.Activate(...)`**.
-6. Operator może **odciąć** bota — watchdog w tle kończy proces robota (`Environment.Exit(1)`).
+1. Bot startuje z tokenem już skonfigurowanym (**env maszynowy** lub **DLL per klient**).
+2. **`FlowRuntime.Activate(...)`** — jedyny krok widoczny w procesie.
+3. Biblioteka pobiera **`seed.jwt`** z GitHub Pages (statyczny URL).
+4. Weryfikuje podpis envelope (HS256), odszyfrowuje katalog, weryfikuje wpis klienta (`seal`, RSA).
+5. Odszyfrowuje payload klienta kluczem zależnym od `tokenId + pepper`.
+6. Zwraca dane operacyjne przez **parametry `Out`** z **`FlowRuntime.Activate(...)`**.
+7. Operator może **odciąć** bota — watchdog w tle kończy proces robota (`Environment.Exit(1)`).
 
 > **Dla klienta:** w NuGet jest tylko klasa **`FlowRuntime`**. Nie ma dostępu do `Bootstrapper`, kodów `boot-0x*`, override env ani logiki licencji. Watchdog co 15 min ponawia walidację w tle.
 
@@ -52,7 +53,7 @@ Orchestrator Asset (RT-...)     GitHub Pages (seed.jwt)
 |---------|-----------|
 | UiPath Studio | 2022.10+ (obsługa .NET 6 / Windows) |
 | Robot | Windows, .NET 6 Runtime |
-| Orchestrator | Asset typu **Text** na token klienta |
+| Orchestrator | Asset **nie jest wymagany** w procesie klienta |
 | Sieć | Robot musi mieć HTTPS do URL `seed.jwt` |
 | Paczka | `Ops.Runtime.Seed` (.nupkg, target: `net6.0`) |
 
@@ -92,34 +93,48 @@ Możesz opakować `FlowRuntime.Activate` w swoją Library UiPath — klient i ta
 
 ---
 
-## 4. Konfiguracja Orchestratora
+## 4. Konfiguracja tokenu (operator — poza procesem klienta)
 
-### Asset z tokenem
+Token **nie pojawia się** w Invoke Code ani w XAML. Operator konfiguruje go jednym ze sposobów:
 
-| Pole | Wartość |
-|------|---------|
-| **Name** | `FLOW_RUNTIME_TOKEN` (zalecane) lub dowolna nazwa |
-| **Type** | Text |
-| **Value** | `RT-2026-CLIENT-001` (przykład) |
-| **Scope** | Folder / Tenant zgodny z procesem |
+### Sposób A — zmienna maszynowa na robocie (zalecane)
 
-W procesie pobierz asset standardową aktywnością **Get Asset** i przekaż wartość do Invoke Code.
+| Element | Wartość |
+|---------|---------|
+| Nazwa | `FLOW_RUNTIME_TOKEN` |
+| Wartość | `RT-2026-CLIENT-001` |
+| Zakres | **System** / użytkownik robota UiPath |
 
-### Zmienna środowiskowa robota (opcjonalnie)
+Windows: *System Properties → Environment Variables* albo GPO/Intune przy provisioning robota.
 
-Biblioteka czyta token także ze zmiennej **`FLOW_RUNTIME_TOKEN`** lub **`APP_BOOT_TOKEN`**. Przy auto-inicjalizacji (ModuleInit) wystarczy ustawić zmienną na maszynie robota — **nie jest to jednak zalecane** w produkcji (Orchestrator Asset daje lepszą kontrolę).
+Biblioteka czyta też `APP_BOOT_TOKEN` (alias). ModuleInit ładuje token w tle przy starcie procesu.
+
+### Sposób B — token wbudowany w DLL (per klient)
+
+Przy budowie paczki dla konkretnego klienta:
+
+```bash
+./scripts/pack-nuget.sh --runtime-token RT-2026-CLIENT-001
+```
+
+Token jest XOR-obfuskowany w DLL — klient nie widzi go w workflow ani w env. **Osobny `.nupkg` na klienta.**
+
+### Czego klient NIE robi
+
+- brak **Get Asset** z tokenem w procesie,
+- brak argumentu `In` z `RT-...` w Invoke Code,
+- brak ustawiania `OPS_SEED_*` na produkcji.
 
 ---
 
 ## 5. Implementacja w procesie (klient)
 
-**Jeden Invoke Code** — argumenty `In`: `runtimeToken`; `Out`: `apiEndpoint`, `connectionString`, `agentPrompt`, `licenseOwner`, `licenseValidTo`.
+**Jeden Invoke Code** — tylko argumenty `Out`: `apiEndpoint`, `connectionString`, `agentPrompt`, `licenseOwner`, `licenseValidTo`.
 
 ```csharp
 using Ops.Runtime.Seed;
 
 FlowRuntime.Activate(
-    runtimeToken,
     out apiEndpoint,
     out connectionString,
     out agentPrompt,
@@ -305,7 +320,7 @@ W produkcji stałe są **wbudowane w DLL** — nie ustawiaj `OPS_SEED_*` na robo
 - [ ] Wystawiono wpis katalogu dla klienta (`keygen issue`)
 - [ ] Opublikowano `seed.jwt` na GitHub Pages (`docs/assets/seed.jwt`)
 - [ ] Zbudowano i dystrybuowano `.nupkg` z poprawnymi stałymi (`Pepper`, klucze, URL)
-- [ ] Utworzono Asset Orchestrator z `RT-...`
+- [ ] Token skonfigurowany poza procesem (env maszynowy **lub** `--runtime-token` przy pack)
 - [ ] Dodano `FlowRuntime.Activate` na początku procesu
 - [ ] Przetestowano odcięcie (`license-api.sh deactivate`)
 - [ ] Obfuskowano DLL przed wysyłką do klienta
