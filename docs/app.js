@@ -173,11 +173,15 @@ async function refreshFromLive(manual = false) {
   }
 
   try {
-    const jwt = await fetchText(state.settings.seedUrl);
-    catalog = await unwrapSeedJwt(jwt);
-    state.liveLoadedAt = new Date();
-    state.dirty = false;
-    await loadAuditLogFromServer();
+    if (publishReady()) {
+      await syncCatalogFromGitHubApi();
+    } else {
+      const jwt = await fetchText(`${state.settings.seedUrl}?_=${Date.now()}`);
+      catalog = await unwrapSeedJwt(jwt);
+      state.liveLoadedAt = new Date();
+      state.dirty = false;
+      await loadAuditLogFromServer();
+    }
     setHeader(`Załadowano ${catalog.entries.length} licencji z serwera (${state.liveLoadedAt.toLocaleString()}).`, "ok");
     if (manual) {
       appendAudit("refresh", null, "ok", "Odświeżono katalog z serwera");
@@ -244,6 +248,12 @@ async function publishAll(options = {}) {
     setStatus("publishStatus", msg, "ok");
     setHeader(`Opublikowano ${catalog.entries.length} licencji na serwerze.`, "ok");
     renderAll();
+    try {
+      await syncCatalogFromGitHubApi();
+      renderAll();
+    } catch {
+      // Pages/API lag — publish succeeded; local catalog already matches what we sent.
+    }
     return { ok: true };
   } catch (error) {
     const msg = `Błąd publikacji: ${error.message}`;
@@ -379,6 +389,16 @@ async function createLicense() {
   if (!tokenId || !owner || !validLocal) {
     return setStatus("createStatus", "Token, klient i data ważności są wymagane.", "warn");
   }
+
+  if (publishReady()) {
+    try {
+      await syncCatalogFromGitHubApi();
+      renderAll();
+    } catch (error) {
+      return setStatus("createStatus", `Sync GitHub: ${error.message}`, "bad");
+    }
+  }
+
   if (catalog.entries.some((e) => e.tokenId === tokenId)) {
     return setStatus("createStatus", `Token ${tokenId} już istnieje.`, "warn");
   }
@@ -439,6 +459,21 @@ async function mutateLicense(tokenId, mode) {
     delete: `Usunąć licencję ${tokenId} z katalogu i opublikować?`
   };
   if (!confirm(verbs[mode])) return;
+
+  if (publishReady()) {
+    setStatus("publishStatus", "Synchronizuję katalog z GitHub przed zmianą…", "");
+    try {
+      await syncCatalogFromGitHubApi();
+      renderAll();
+    } catch (error) {
+      setStatus(
+        "publishStatus",
+        `Nie udało się pobrać aktualnego seed.jwt z GitHub: ${error.message}`,
+        "bad"
+      );
+      return;
+    }
+  }
 
   const entry = catalog.entries.find((e) => e.tokenId === tokenId);
   if (!entry && mode !== "delete") return;
@@ -636,19 +671,66 @@ async function publishAuditLog() {
   );
 }
 
-async function publishGitHubFile(path, content, message, attempt = 0) {
+function githubContentsApiUrl(path) {
   const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-  const apiUrl = `https://api.github.com/repos/${encodeURIComponent(state.settings.ghOwner)}/${encodeURIComponent(state.settings.ghRepo)}/contents/${encodedPath}`;
+  return `https://api.github.com/repos/${encodeURIComponent(state.settings.ghOwner)}/${encodeURIComponent(state.settings.ghRepo)}/contents/${encodedPath}`;
+}
 
-  let sha = null;
-  try {
-    const existing = await githubRequest(
-      `${apiUrl}?ref=${encodeURIComponent(state.settings.ghBranch)}`,
-      "GET"
-    );
-    sha = existing.sha ?? null;
-  } catch (error) {
-    if (!String(error.message).includes("HTTP 404")) throw error;
+function parseConflictExpectedSha(message) {
+  const match = String(message).match(/does not match ([a-f0-9]{40})/i);
+  return match?.[1] ?? null;
+}
+
+async function fetchGitHubFileMeta(path) {
+  const apiUrl = githubContentsApiUrl(path);
+  const ref = encodeURIComponent(state.settings.ghBranch);
+  const json = await githubRequest(`${apiUrl}?ref=${ref}&_=${Date.now()}`, "GET", null, { raw: true });
+
+  const sha = json?.sha;
+  if (!sha) throw new Error(`Brak SHA dla ${path} na branchu ${state.settings.ghBranch}`);
+
+  let text;
+  if (typeof json.content === "string" && json.content.length > 0) {
+    const b64 = json.content.replace(/\s/g, "");
+    text = new TextDecoder().decode(fromBase64(b64));
+  } else if (json.download_url) {
+    text = await fetchText(`${json.download_url}?_=${Date.now()}`);
+  } else {
+    throw new Error(`Brak treści pliku ${path} w odpowiedzi GitHub API`);
+  }
+
+  return { sha, text };
+}
+
+async function syncCatalogFromGitHubApi() {
+  saveSettingsFromForm();
+  const s = state.settings;
+  if (!s.ghOwner || !s.ghRepo || !s.ghToken) {
+    throw new Error("Brak konfiguracji GitHub (owner/repo/PAT).");
+  }
+  if (!settingsReady()) {
+    throw new Error("Uzupełnij sekrety kryptograficzne w ustawieniach.");
+  }
+
+  const { text } = await fetchGitHubFileMeta(s.ghSeedPath);
+  catalog = await unwrapSeedJwt(text);
+  state.liveLoadedAt = new Date();
+  state.dirty = false;
+  await loadAuditLogFromServer();
+  return catalog;
+}
+
+async function publishGitHubFile(path, content, message, attempt = 0, shaOverride = null) {
+  const apiUrl = githubContentsApiUrl(path);
+
+  let sha = shaOverride;
+  if (!sha) {
+    try {
+      const existing = await fetchGitHubFileMeta(path);
+      sha = existing.sha;
+    } catch (error) {
+      if (!String(error.message).includes("HTTP 404")) throw error;
+    }
   }
 
   const body = {
@@ -662,9 +744,10 @@ async function publishGitHubFile(path, content, message, attempt = 0) {
     return await githubRequest(apiUrl, "PUT", body);
   } catch (error) {
     const isConflict = String(error.message).includes("HTTP 409");
-    if (isConflict && attempt < 3) {
-      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
-      return publishGitHubFile(path, content, message, attempt + 1);
+    if (isConflict && attempt < 5) {
+      const expectedSha = parseConflictExpectedSha(error.message);
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      return publishGitHubFile(path, content, message, attempt + 1, expectedSha ?? null);
     }
     if (isConflict) {
       throw new Error(
@@ -675,19 +758,21 @@ async function publishGitHubFile(path, content, message, attempt = 0) {
   }
 }
 
-async function githubRequest(url, method, body) {
+async function githubRequest(url, method, body, options = {}) {
   const s = state.settings;
   const headers = {
     Authorization: `Bearer ${s.ghToken}`,
     Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28"
+    "X-GitHub-Api-Version": "2022-11-28",
+    "Cache-Control": "no-cache"
   };
   if (body) headers["Content-Type"] = "application/json";
 
   const resp = await fetch(url, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined
+    body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store"
   });
 
   const text = await resp.text();
@@ -713,6 +798,10 @@ async function githubRequest(url, method, body) {
       throw new Error(`HTTP 409: ${ghMsg}`);
     }
     throw new Error(`HTTP ${resp.status}: ${ghMsg}`);
+  }
+
+  if (options.raw) {
+    return json ?? {};
   }
 
   // GET /contents → sha na poziomie root; PUT → czasem w content.sha
@@ -850,7 +939,8 @@ function canonicalizeEntry(entry) {
 }
 
 async function fetchText(url) {
-  const resp = await fetch(url, { cache: "no-store" });
+  const sep = url.includes("?") ? "&" : "?";
+  const resp = await fetch(`${url}${sep}_=${Date.now()}`, { cache: "no-store" });
   if (!resp.ok) throw new Error(`HTTP ${resp.status} dla ${url}`);
   return resp.text();
 }
