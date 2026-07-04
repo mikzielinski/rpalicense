@@ -1,31 +1,58 @@
 {
   "entries": [
     {
-      "atUtc": "2026-07-04T19:37:21.391Z",
+      "atUtc": "2026-07-04T19:39:55.517Z",
       "who": "mikolaj",
       "action": "publish",
       "tokenId": "-",
       "code": "ok",
       "success": true,
-      "notes": "seed.jwt → commit f571faa"
+      "notes": "seed.jwt → commit 503c0c1"
     },
     {
-      "atUtc": "2026-07-04T19:37:16.985Z",
+      "atUtc": "2026-07-04T19:39:55.515Z",
+      "who": "mikolaj",
+      "action": "renew",
+      "tokenId": "RT-2026-Qiagen-69",
+      "code": "ok",
+      "success": true,
+      "notes": "Przedłużono do 2027-07-04T19:39:54.689Z"
+    },
+    {
+      "atUtc": "2026-07-04T19:37:25.278Z",
+      "who": "mikolaj",
+      "action": "refresh",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "Odświeżono katalog z Pages"
+    },
+    {
+      "atUtc": "2026-07-04T19:36:57.278Z",
       "who": "mikolaj",
       "action": "publish",
       "tokenId": "-",
       "code": "ok",
       "success": true,
-      "notes": "seed.jwt → commit e6b1782"
+      "notes": "seed.jwt → commit 86d4608"
     },
     {
-      "atUtc": "2026-07-04T19:37:16.982Z",
+      "atUtc": "2026-07-04T19:36:57.275Z",
       "who": "mikolaj",
       "action": "disable",
       "tokenId": "RT-2026-Qiagen-69",
       "code": "ok",
       "success": true,
       "notes": "Licencja odcięta"
+    },
+    {
+      "atUtc": "2026-07-04T19:36:23.845Z",
+      "who": "mikolaj",
+      "action": "refresh",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "Odświeżono katalog z Pages"
     },
     {
       "atUtc": "2026-07-04T19:14:33.837Z",
