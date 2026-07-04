@@ -9,7 +9,7 @@ KROK 1 — INSTALACJA (jeden klik)
   Utworzy folder:
     C:\Users\TWOJ_USER\OpsRuntime\
       lib\Ops.Runtime.Seed.dll
-      nuget\Ops.Runtime.Seed.1.0.0.nupkg
+      nuget\Ops.Runtime.Seed.1.0.1.nupkg
       catalog\seed.jwt
 
   Oraz kopie na Pulpicie:
