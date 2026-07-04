@@ -41,6 +41,21 @@ internal sealed class CacheStore
         File.WriteAllText(_path, json);
     }
 
+    internal void Delete()
+    {
+        try
+        {
+            if (File.Exists(_path))
+            {
+                File.Delete(_path);
+            }
+        }
+        catch
+        {
+            // Best-effort.
+        }
+    }
+
     private static string BuildPath()
     {
         var root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);

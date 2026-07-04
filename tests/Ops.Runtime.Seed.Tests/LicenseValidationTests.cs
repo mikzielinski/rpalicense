@@ -59,6 +59,34 @@ public sealed class LicenseValidationTests : IDisposable
     }
 
     [Fact]
+    public void DisabledLicense_ClearsCurrentAfterPriorLiveValidation()
+    {
+        UseJwt(_manifest.LiveJwt);
+        Bootstrapper.Initialize(_manifest.TokenId);
+        _ = Bootstrapper.Current;
+
+        UseJwt(_manifest.DisabledJwt);
+        var ok = Bootstrapper.TryInitialize(_manifest.TokenId, out _);
+
+        Assert.False(ok);
+        Assert.Equal("boot-0x12", Bootstrapper.LastCheck.Code);
+        var ex = Assert.Throws<InvalidOperationException>(() => _ = Bootstrapper.Current);
+        Assert.Equal("boot-0x00", ex.Message);
+    }
+
+    [Fact]
+    public void EnsureAuthorized_OnDisabled_ThrowsBoot0x12()
+    {
+        UseJwt(_manifest.DisabledJwt);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            Bootstrapper.EnsureAuthorized(_manifest.TokenId));
+
+        Assert.Equal("boot-0x12", ex.Message);
+        Assert.Equal("boot-0x12", Bootstrapper.LastCheck.Code);
+    }
+
+    [Fact]
     public void DisabledLicense_BlocksReInitAfterLiveValidation()
     {
         UseJwt(_manifest.LiveJwt);

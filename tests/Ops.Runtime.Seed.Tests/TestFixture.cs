@@ -76,6 +76,7 @@ public static class TestFixture
         BootstrapperSettings.PublicSealKeyPem = manifest.PublicSealKeyPem;
         BootstrapperSettings.SourceUsesJwtEnvelope = true;
         BootstrapperSettings.GraceDays = 7;
+        BootstrapperSettings.KillOnDeny = false;
         BootstrapperSettings.CachePathOverride = cacheDir is null
             ? null
             : Path.Combine(cacheDir, "seed.cache.json");
@@ -156,6 +157,7 @@ public static class TestFixture
         psi.Environment["OPS_SEED_ENVELOPE_AUDIENCE"] = manifest.EnvelopeAudience;
         psi.Environment["OPS_SEED_PUBLIC_SEAL_KEY_FILE"] = pemFile;
         psi.Environment["OPS_SEED_CACHE_PATH"] = Path.Combine(cacheDir, "seed.cache.json");
+        psi.Environment["OPS_SEED_KILL_ON_DENY"] = "0";
 
         using var proc = Process.Start(psi)!;
         var stdout = proc.StandardOutput.ReadToEnd();
@@ -188,7 +190,8 @@ public static class TestFixture
             "OPS_SEED_PUBLIC_SEAL_KEY_PEM",
             "OPS_SEED_PUBLIC_SEAL_KEY_FILE",
             "OPS_SEED_CATALOG_FILE",
-            "OPS_SEED_CACHE_PATH"
+            "OPS_SEED_CACHE_PATH",
+            "OPS_SEED_KILL_ON_DENY"
         })
         {
             Environment.SetEnvironmentVariable(name, null);

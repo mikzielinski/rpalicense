@@ -105,7 +105,11 @@ if (!Ops.Runtime.Seed.Bootstrapper.TryInitialize(runtimeTokenFromAsset, out var 
 }
 ```
 
-7. Dla długich procesów: wywołuj `TryInitialize(...)` cyklicznie (np. co 15-30 min), aby odcięcie/odnowienie zadziałało bez restartu bota.
+7. Dla długich procesów: wywołuj `EnsureAuthorized(...)` cyklicznie (np. co 15-30 min). Przy odcięciu/wygasnięciu licencji biblioteka czyści sesję; na Windows domyślnie kończy procesy UiPath (`OPS_SEED_KILL_ON_DENY=1`).
+
+```csharp
+Ops.Runtime.Seed.Bootstrapper.EnsureAuthorized(runtimeTokenFromAsset);
+```
 
 ## 6) Zdalne odcięcie / odnowienie licencji
 

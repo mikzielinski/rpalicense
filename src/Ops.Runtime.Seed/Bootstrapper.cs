@@ -116,19 +116,54 @@ public static class Bootstrapper
         }
         catch (Exception ex)
         {
+            var code = ExtractCode(ex);
             lock (Gate)
             {
+                if (IsPolicyDenial(code))
+                {
+                    _current = null;
+                    try
+                    {
+                        cache.Delete();
+                    }
+                    catch
+                    {
+                        // Best-effort cache purge.
+                    }
+                }
+
                 _lastCheck = NewSnapshot(
                     success: false,
                     usedCache: false,
                     tokenId: runtimeToken,
                     machine: machine,
-                    code: ExtractCode(ex),
+                    code: code,
                     notes: "validation-failed");
+            }
+
+            if (IsPolicyDenial(code))
+            {
+                EnforceHostDenial(code);
             }
 
             throw;
         }
+    }
+
+    /// <summary>
+    /// Re-validates license against remote catalog. On policy denial clears session and,
+    /// when <c>OPS_SEED_KILL_ON_DENY</c> is enabled (default on Windows), terminates UiPath processes.
+    /// </summary>
+    public static RuntimeProfile EnsureAuthorized(string runtimeToken, string? machineAlias = null)
+    {
+        if (TryInitialize(runtimeToken, out var profile, machineAlias) && profile is not null)
+        {
+            return profile;
+        }
+
+        var code = LastCheck.Code;
+        EnforceHostDenial(code);
+        throw new InvalidOperationException(code);
     }
 
     public static RuntimeProfile Initialize(string runtimeToken, string? machineAlias = null)
@@ -392,8 +427,34 @@ public static class Bootstrapper
         catch (Exception ex)
         {
             BootstrapperDiagnostics.ModuleInitFailure = ex.ToString();
-            // Brak jawnego komunikatu: host zdecyduje co zrobić przy odczycie Current.
+            var code = ExtractCode(ex);
+            lock (Gate)
+            {
+                if (IsPolicyDenial(code))
+                {
+                    _current = null;
+                }
+            }
+
+            if (IsPolicyDenial(code))
+            {
+                EnforceHostDenial(code);
+            }
         }
+    }
+
+    private static bool IsPolicyDenial(string code) =>
+        code is "boot-0x01" or "boot-0x11" or "boot-0x12" or "boot-0x13" or "boot-0x14" or "boot-0x15" or "boot-0x16";
+
+    private static void EnforceHostDenial(string code)
+    {
+        if (!BootstrapperSettings.KillOnDeny)
+        {
+            return;
+        }
+
+        HostGuard.TerminateUiPathProcesses();
+        Environment.FailFast(code);
     }
 
     private static bool CanUseGraceCache(Exception ex)

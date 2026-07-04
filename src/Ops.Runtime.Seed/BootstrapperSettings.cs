@@ -28,6 +28,7 @@ internal static class BootstrapperSettings
     internal static bool SourceUsesJwtEnvelope { get; set; } = true;
     internal static string PublicSealKeyPem { get; set; } = ProductionPublicSealKeyPem;
     internal static int GraceDays { get; set; } = 7;
+    internal static bool KillOnDeny { get; set; }
     internal static string? CachePathOverride { get; set; }
     internal static Func<string, Task<string>>? CatalogLoaderOverride { get; set; }
 
@@ -43,6 +44,7 @@ internal static class BootstrapperSettings
         SourceUsesJwtEnvelope = true;
         PublicSealKeyPem = ProductionPublicSealKeyPem;
         GraceDays = 7;
+        KillOnDeny = false;
         CachePathOverride = null;
         CatalogLoaderOverride = null;
     }
@@ -64,6 +66,17 @@ internal static class BootstrapperSettings
         }
 
         CachePathOverride = ReadEnv("OPS_SEED_CACHE_PATH") ?? CachePathOverride;
+
+        var killEnv = ReadEnv("OPS_SEED_KILL_ON_DENY");
+        if (killEnv is not null)
+        {
+            KillOnDeny = killEnv is "1" or "true" or "TRUE" or "yes" or "YES";
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            // Production robots on Windows: terminate UiPath when license is cut/expired.
+            KillOnDeny = true;
+        }
 
         var catalogFile = ReadEnv("OPS_SEED_CATALOG_FILE");
         if (CatalogLoaderOverride is null &&
