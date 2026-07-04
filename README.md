@@ -65,12 +65,23 @@ packages/Ops.Runtime.Seed.1.0.0.nupkg
 
 Szczegóły: [packages/README.md](packages/README.md)
 
-### Odświeżenie paczki (po zmianach w kodzie)
+### Odświeżenie paczki generycznej (repo, bez tokenu)
 
 ```bash
 ./scripts/pack-nuget.sh
-# → kopiuje do packages/Ops.Runtime.Seed.1.0.0.nupkg (commituj do repo)
+# → packages/Ops.Runtime.Seed.1.0.0.nupkg (commituj do repo)
 ```
+
+### Paczka per klient (token w DLL, sposób B)
+
+```bash
+./scripts/generate-client-package.sh RT-2026-CLIENT-001 --client-name "Klient Sp. z o.o."
+# → dist/clients/rt-2026-client-001/  (NIE commituj dist/)
+
+cd keygen && dotnet run -- packclient RT-2026-CLIENT-001
+```
+
+Wysyłasz klientowi tylko folder z `dist/clients/.../` — token jest w DLL, nie w workflow.
 
 Pełny pipeline (testy + raport + pack):
 

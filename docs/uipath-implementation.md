@@ -109,15 +109,31 @@ Windows: *System Properties → Environment Variables* albo GPO/Intune przy prov
 
 Biblioteka czyta też `APP_BOOT_TOKEN` (alias). ModuleInit ładuje token w tle przy starcie procesu.
 
-### Sposób B — token wbudowany w DLL (per klient)
+### Sposób B — token wbudowany w DLL (per klient, zalecane dla klienta końcowego)
 
-Przy budowie paczki dla konkretnego klienta:
+Generator paczki — **osobny `.nupkg` na token**, bez env na robocie:
 
 ```bash
-./scripts/pack-nuget.sh --runtime-token RT-2026-CLIENT-001
+# Skrypt
+./scripts/generate-client-package.sh RT-2026-CLIENT-001 --client-name "Acme Sp. z o.o."
+
+# Albo przez keygen
+cd keygen
+dotnet run -- packclient RT-2026-CLIENT-001 dist/clients --client-name "Acme Sp. z o.o."
 ```
 
-Token jest XOR-obfuskowany w DLL — klient nie widzi go w workflow ani w env. **Osobny `.nupkg` na klienta.**
+Wynik w `dist/clients/rt-2026-client-001/`:
+
+| Plik | Opis |
+|------|------|
+| `Ops.Runtime.Seed.1.0.0.nupkg` | Instalacja w UiPath |
+| `Ops.Runtime.Seed.dll` | Do obfuskacji przed wysyłką |
+| `INSTALL.txt` | Instrukcja dla wdrożenia |
+| `manifest.json` | Metadane buildu (operator) |
+
+Token jest XOR-obfuskowany w DLL. Folder `dist/` **nie commituj** do git.
+
+Przed wysyłką klientowi: obfuskuj `Ops.Runtime.Seed.dll` (`sample/confuser.example.crproj`), potem wstaw z powrotem do `.nupkg` lub dystrybuuj DLL + nupkg z maintainera.
 
 ### Czego klient NIE robi
 
@@ -159,7 +175,7 @@ Klient **nie ma** innej publicznej metody — nie da się pominąć `Activate`.
 | `Bootstrapper`, kody `boot-0x*` | **Nie widzi** (internal) |
 | Watchdog + kill przy odcięciu | Wewnątrz DLL |
 
-Przed wydaniem klientowi: **obfuskuj** DLL (`sample/confuser.example.crproj`) i `./scripts/pack-nuget.sh`.
+Przed wydaniem klientowi: **obfuskuj** DLL (`sample/confuser.example.crproj`) po `./scripts/generate-client-package.sh`.
 
 ---
 
@@ -320,7 +336,7 @@ W produkcji stałe są **wbudowane w DLL** — nie ustawiaj `OPS_SEED_*` na robo
 - [ ] Wystawiono wpis katalogu dla klienta (`keygen issue`)
 - [ ] Opublikowano `seed.jwt` na GitHub Pages (`docs/assets/seed.jwt`)
 - [ ] Zbudowano i dystrybuowano `.nupkg` z poprawnymi stałymi (`Pepper`, klucze, URL)
-- [ ] Token skonfigurowany poza procesem (env maszynowy **lub** `--runtime-token` przy pack)
+- [ ] Wygenerowano paczkę per klient: `./scripts/generate-client-package.sh RT-...`
 - [ ] Dodano `FlowRuntime.Activate` na początku procesu
 - [ ] Przetestowano odcięcie (`license-api.sh deactivate`)
 - [ ] Obfuskowano DLL przed wysyłką do klienta
