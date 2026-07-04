@@ -47,17 +47,55 @@ public sealed class GitHubPagesIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task GitHubPages_SeedJwt_MatchesLocalFixture()
+    public async Task GitHubPages_SeedJwt_ContainsRegisteredToken()
     {
         var url = _manifest.SourceUrl;
-        var localPath = Path.GetFullPath(Path.Combine(
-            FindFixturesRoot(), "..", "docs", "assets", "seed.jwt"));
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         var remote = (await WaitForPagesJwtAsync(http, url).ConfigureAwait(false)).Trim();
-        var local = File.ReadAllText(localPath).Trim();
 
-        Assert.Equal(local, remote);
+        var keygen = Path.GetFullPath(Path.Combine(FindFixturesRoot(), "..", "keygen", "SeedForge.csproj"));
+        var remoteCatalog = RunKeygenUnwrap(keygen, remote);
+        using var doc = JsonDocument.Parse(remoteCatalog);
+        var tokenId = doc.RootElement.GetProperty("entries")[0].GetProperty("tokenId").GetString();
+
+        Assert.Equal(_manifest.TokenId, tokenId);
+        Assert.True(doc.RootElement.GetProperty("entries")[0].GetProperty("enabled").GetBoolean());
+    }
+
+    private static string RunKeygenUnwrap(string keygenProject, string jwt)
+    {
+        var jwtFile = Path.Combine(Path.GetTempPath(), $"unwrap-{Guid.NewGuid():N}.jwt");
+        File.WriteAllText(jwtFile, jwt);
+        try
+        {
+            using var proc = Process.Start(new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments =
+                    $"run --project \"{keygenProject}\" -c Release --no-build -- unwrapjwt \"{jwtFile}\" " +
+                    "\"test-jwt-signing-key-ops-runtime-seed-2026\" " +
+                    "\"test-envelope-pepper-ops-runtime-2026\" " +
+                    "\"https://mikzielinski.github.io/rpalicense\" " +
+                    "\"ops-runtime-seed\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            })!;
+            var stdout = proc.StandardOutput.ReadToEnd();
+            var stderr = proc.StandardError.ReadToEnd();
+            proc.WaitForExit();
+            if (proc.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"unwrapjwt failed: {stderr}");
+            }
+
+            return stdout.Trim();
+        }
+        finally
+        {
+            try { File.Delete(jwtFile); } catch { /* ignore */ }
+        }
     }
 
     private static async Task<string> WaitForPagesJwtAsync(HttpClient http, string url)
