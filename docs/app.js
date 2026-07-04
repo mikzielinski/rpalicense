@@ -181,25 +181,10 @@ async function refreshFromLive(manual = false) {
   }
 
   try {
-    if (publishReady()) {
-      try {
-        await syncCatalogFromGitHubApi();
-      } catch (apiError) {
-        await refreshCatalogFromPages();
-        if (manual) {
-          setStatus(
-            "publishStatus",
-            `Załadowano z Pages. GitHub API: ${apiError.message}`,
-            "warn"
-          );
-        }
-      }
-    } else {
-      await refreshCatalogFromPages();
-    }
+    await refreshCatalogFromPages();
     setHeader(`Załadowano ${catalog.entries.length} licencji z serwera (${state.liveLoadedAt.toLocaleString()}).`, "ok");
     if (manual) {
-      appendAudit("refresh", null, "ok", "Odświeżono katalog z serwera");
+      appendAudit("refresh", null, "ok", "Odświeżono katalog z Pages");
       setStatus("publishStatus", "Katalog zsynchronizowany z serwera.", "ok");
     }
   } catch (error) {
