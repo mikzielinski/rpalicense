@@ -27,21 +27,34 @@ body {
   padding: 20px 24px;
 }
 
-.app-header h1 {
-  margin: 0 0 8px;
-  font-size: 1.4rem;
+.header-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
 }
 
-.app-header p,
-.app-footer p {
-  margin: 0;
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-header h1 {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+}
+
+.muted {
   color: var(--muted);
 }
 
-.grid {
+.layout {
   display: grid;
   gap: 16px;
   padding: 0 24px 24px;
+  max-width: 1100px;
 }
 
 .card {
@@ -51,20 +64,30 @@ body {
   padding: 16px;
 }
 
+.settings-card summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
 .card h2 {
-  margin: 0 0 12px;
+  margin: 0;
   font-size: 1rem;
 }
 
-.card h3 {
-  margin: 10px 0;
-  font-size: 0.92rem;
-  color: var(--muted);
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
-.divider {
-  border-top: 1px solid var(--line);
-  margin: 12px 0;
+.badge {
+  background: #24304d;
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.85rem;
 }
 
 textarea,
@@ -93,14 +116,14 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
+  margin: 10px 0;
 }
 
 button {
   border: 1px solid #3a4a73;
   background: #1d2a49;
   color: #d9e4ff;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border-radius: 8px;
   cursor: pointer;
 }
@@ -109,10 +132,21 @@ button:hover {
   border-color: #6589d8;
 }
 
+button.primary {
+  background: #2956b3;
+  border-color: #4f7fe6;
+  font-weight: 600;
+}
+
+button.small {
+  padding: 4px 8px;
+  font-size: 0.82rem;
+}
+
 .form-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   margin-bottom: 10px;
 }
 
@@ -123,10 +157,8 @@ label {
   font-size: 0.9rem;
 }
 
-.status,
-.summary {
-  color: var(--muted);
-  margin: 6px 0 10px;
+.status {
+  margin: 8px 0 0;
   font-size: 0.9rem;
 }
 
@@ -139,7 +171,7 @@ label {
 table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 720px;
+  min-width: 640px;
 }
 
 th,
@@ -148,6 +180,7 @@ td {
   padding: 8px 10px;
   text-align: left;
   font-size: 0.87rem;
+  vertical-align: middle;
 }
 
 th {
@@ -158,14 +191,41 @@ tbody tr:hover {
   background: #131a27;
 }
 
-pre {
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  background: #24304d;
+}
+
+.pill.ok {
+  color: var(--good);
+}
+
+.pill.warn {
+  color: var(--warn);
+}
+
+.pill.bad {
+  color: var(--bad);
+}
+
+.result-box {
   margin: 10px 0 0;
   background: #0f131c;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
+  padding: 12px;
   overflow: auto;
-  max-height: 260px;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
 }
 
 .ok {
@@ -178,4 +238,14 @@ pre {
 
 .bad {
   color: var(--bad);
+}
+
+code {
+  font-size: 0.85em;
+}
+
+@media (max-width: 700px) {
+  .header-row {
+    flex-direction: column;
+  }
 }

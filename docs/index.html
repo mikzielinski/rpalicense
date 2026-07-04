@@ -3,121 +3,163 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ops Runtime - Panel Operatora</title>
+  <title>Ops Runtime — Panel licencji</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <header class="app-header">
-    <h1>Ops Runtime - Panel Operatora</h1>
-    <p>Uproszczony workflow: odciecie/odnowienie -> podpis -> seed.jwt -> publikacja.</p>
+    <div class="header-row">
+      <div>
+        <h1>Ops Runtime — Panel licencji</h1>
+        <p id="headerStatus" class="muted">Ładowanie…</p>
+      </div>
+      <div class="header-actions">
+        <button id="btnRefreshLive" type="button">Odśwież z serwera</button>
+        <button id="btnPublishAll" type="button" class="primary">Zapisz i opublikuj</button>
+      </div>
+    </div>
   </header>
 
-  <main class="grid">
-    <section class="card">
-      <h2>Krok 1: Katalog i wpis klienta</h2>
-      <div class="actions">
-        <button id="loadSampleCatalog" type="button">Wczytaj przyklad</button>
-        <button id="validateCatalog" type="button">Sprawdz katalog</button>
-        <button id="downloadCatalog" type="button">Pobierz catalog.json</button>
-      </div>
-      <textarea id="catalogInput" rows="14" spellcheck="false"></textarea>
-      <p id="catalogStatus" class="status"></p>
-
+  <main class="layout">
+    <details class="card settings-card">
+      <summary>Ustawienia (jednorazowo)</summary>
       <div class="form-grid">
-        <label>Wybierz tokenId
-          <select id="tokenSelect"></select>
+        <label>Operator (kto)
+          <input id="cfgOperator" type="text" placeholder="np. mikolaj">
         </label>
-        <label>nowe validToUtc
-          <input id="opValidToUtc" type="datetime-local">
+        <label>GitHub owner
+          <input id="cfgGhOwner" type="text">
         </label>
-      </div>
-      <div class="actions">
-        <button id="disableToken" type="button">Odetnij (enabled=false)</button>
-        <button id="renewToken" type="button">Odnow (enabled=true + validTo)</button>
-      </div>
-      <label>Prywatny klucz RSA w JWK (do przeliczenia seal)
-        <textarea id="sealJwk" rows="5" spellcheck="false" placeholder='{"kty":"RSA","n":"...","e":"...","d":"..."}'></textarea>
-      </label>
-      <div class="actions">
-        <button id="resealEntries" type="button">Przelicz seal dla wszystkich wpisow</button>
-      </div>
-      <pre id="catalogSummary"></pre>
-    </section>
-
-    <section class="card">
-      <h2>Krok 2: seed.jwt</h2>
-      <div class="form-grid">
-        <label>issuer (iss)
-          <input id="jwtIssuer" type="text" value="https://mikzielinski.github.io/rpalicense">
+        <label>GitHub repo
+          <input id="cfgGhRepo" type="text">
         </label>
-        <label>audience (aud)
-          <input id="jwtAudience" type="text" value="ops-runtime-seed">
+        <label>Branch
+          <input id="cfgGhBranch" type="text" value="main">
         </label>
-        <label>exp UTC
-          <input id="jwtExpUtc" type="datetime-local">
+        <label>URL seed.jwt (live)
+          <input id="cfgSeedUrl" type="url">
         </label>
-        <label>JWT signing key (HS256)
-          <input id="jwtSigningKey" type="password" placeholder="dlugi losowy sekret">
+        <label>GitHub PAT
+          <input id="cfgGhToken" type="password" placeholder="ghp_… (contents:write)">
+        </label>
+        <label>Pepper (szyfrowanie payload)
+          <input id="cfgPepper" type="password">
         </label>
         <label>Envelope pepper
-          <input id="jwtEnvelopePepper" type="password" placeholder="dlugi losowy pepper">
+          <input id="cfgEnvelopePepper" type="password">
+        </label>
+        <label>JWT signing key
+          <input id="cfgJwtSigningKey" type="password">
+        </label>
+        <label>Issuer
+          <input id="cfgIssuer" type="text">
+        </label>
+        <label>Audience
+          <input id="cfgAudience" type="text">
         </label>
       </div>
+      <label>Klucz RSA (JWK prywatny — seal)
+        <textarea id="cfgSealJwk" rows="4" spellcheck="false" placeholder='{"kty":"RSA","n":"…","e":"…","d":"…"}'></textarea>
+      </label>
       <div class="actions">
-        <button id="buildJwt" type="button">Generuj seed.jwt z katalogu</button>
-        <button id="downloadJwt" type="button">Pobierz seed.jwt</button>
+        <button id="btnSaveSettings" type="button">Zapisz ustawienia</button>
       </div>
-      <textarea id="jwtInput" rows="7" spellcheck="false" placeholder="tu seed.jwt"></textarea>
-      <pre id="jwtResult"></pre>
+      <p id="settingsStatus" class="status"></p>
+    </details>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Licencje</h2>
+        <span id="licenseCount" class="badge">0</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Klient</th>
+              <th>Ważna do</th>
+              <th>Status</th>
+              <th>Akcje</th>
+            </tr>
+          </thead>
+          <tbody id="licenseTableBody"></tbody>
+        </table>
+      </div>
+      <p id="publishStatus" class="status"></p>
     </section>
 
     <section class="card">
-      <h2>Krok 3: Publikacja do GitHub</h2>
+      <h2>Nowa licencja</h2>
       <div class="form-grid">
-        <label>repo owner
-          <input id="ghOwner" type="text" placeholder="twoj-login">
+        <label>Token ID
+          <input id="newTokenId" type="text" placeholder="RT-2026-Klient-001">
         </label>
-        <label>repo name
-          <input id="ghRepo" type="text" placeholder="twoje-repo">
+        <label>Klient (owner)
+          <input id="newOwner" type="text" placeholder="Qiagen">
         </label>
-        <label>branch
-          <input id="ghBranch" type="text" value="main">
+        <label>Ważna do
+          <input id="newValidTo" type="datetime-local">
         </label>
-        <label>path (plik JWT)
-          <input id="ghPath" type="text" value="docs/assets/seed.jwt">
-        </label>
-        <label>GitHub PAT (repo contents:write)
-          <input id="ghToken" type="password" placeholder="ghp_...">
-        </label>
-        <label>commit message
-          <input id="ghMessage" type="text" value="Update seed.jwt">
+        <label>Maszyny (opcjonalnie, CSV)
+          <input id="newHosts" type="text" placeholder="ROBOT01,ROBOT02 lub puste">
         </label>
       </div>
+      <label>Prompt agenta
+        <textarea id="newPrompt" rows="2" spellcheck="false">Jestes agentem workflow. Odpowiadasz tylko na temat procesu.</textarea>
+      </label>
       <div class="actions">
-        <button id="publishJwt" type="button">Opublikuj seed.jwt do repo</button>
+        <button id="btnCreateLicense" type="button" class="primary">Utwórz licencję</button>
       </div>
-      <pre id="ghResult"></pre>
+      <p id="createStatus" class="status"></p>
     </section>
 
     <section class="card">
-      <h2>Szybki test statusu walidacji</h2>
+      <h2>Sprawdź status (na żywo z serwera)</h2>
       <div class="form-grid">
-        <label>tokenId
-          <input id="simTokenId" type="text" placeholder="RT-2026-CLIENT-001">
+        <label>Token
+          <input id="checkTokenId" type="text" placeholder="RT-2026-Qiagen-69">
         </label>
-        <label>machine
-          <input id="simMachine" type="text" placeholder="ROBOT01">
+        <label>Maszyna (opcjonalnie)
+          <input id="checkMachine" type="text" placeholder="nazwa komputera bota">
         </label>
       </div>
       <div class="actions">
-        <button id="simulateCheck" type="button">Sprawdz status</button>
+        <button id="btnCheckLive" type="button">Sprawdź teraz</button>
       </div>
-      <pre id="simResult"></pre>
+      <pre id="checkResult" class="result-box">—</pre>
     </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Dziennik zdarzeń</h2>
+        <button id="btnClearLocalLog" type="button" class="small">Wyczyść widok</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Kiedy (UTC)</th>
+              <th>Kto</th>
+              <th>Akcja</th>
+              <th>Token</th>
+              <th>Status</th>
+              <th>Szczegóły</th>
+            </tr>
+          </thead>
+          <tbody id="auditTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <details class="card">
+      <summary>Zaawansowane — surowy katalog JSON</summary>
+      <textarea id="catalogRaw" rows="10" spellcheck="false" readonly></textarea>
+    </details>
   </main>
 
   <footer class="app-footer">
-    <p>Uwaga: klucze i sekrety sa przetwarzane lokalnie w przegladarce. Nie hostuj panelu publicznie z aktywnymi sekretami.</p>
+    <p>Sekrety i klucze są przetwarzane lokalnie w przeglądarce. PAT nie jest wysyłany nigdzie poza GitHub API.</p>
   </footer>
 
   <script src="./app.js"></script>
