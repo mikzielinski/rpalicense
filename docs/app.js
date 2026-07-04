@@ -841,17 +841,24 @@ async function githubRequest(url, method, body, options = {}) {
   const headers = {
     Authorization: `Bearer ${s.ghToken}`,
     Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
     "Cache-Control": "no-cache"
   };
   if (body) headers["Content-Type"] = "application/json";
 
-  const resp = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-    cache: "no-store"
-  });
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      cache: "no-store"
+    });
+  } catch (error) {
+    const hint =
+      "Przeglądarka nie połączyła się z api.github.com (sieć, VPN, adblock lub polityka firmowa). " +
+      "Sprawdź DevTools → Network, spróbuj innej przeglądarki lub wyłącz blokery.";
+    throw new Error(error?.message === "Failed to fetch" ? hint : error.message);
+  }
 
   const text = await resp.text();
   let json = null;
