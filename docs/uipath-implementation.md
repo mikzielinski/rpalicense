@@ -66,11 +66,20 @@ Token klienta **nie jest** sekretem kryptograficznym — to identyfikator licenc
 ### 3.1 Zbuduj NuGet lokalnie
 
 ```bash
-cd src/Ops.Runtime.Seed
-dotnet pack -c Release
+./scripts/pack-nuget.sh
 ```
 
-Plik: `bin/Release/Ops.Runtime.Seed.1.0.0.nupkg`
+Wynik (nie ma tego pliku w git — trzeba zbudować):
+
+```
+artifacts/nuget/Ops.Runtime.Seed.1.0.0.nupkg
+```
+
+Domyślnie `dotnet pack` bez `-o` zapisuje też do:
+
+```
+src/Ops.Runtime.Seed/bin/Release/Ops.Runtime.Seed.1.0.0.nupkg
+```
 
 ### 3.2 Dodaj feed w UiPath Studio
 

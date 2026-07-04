@@ -47,7 +47,41 @@ Szczegóły: **[docs/uipath-implementation.md](docs/uipath-implementation.md)**
 
 ---
 
-## Build biblioteki
+## NuGet — gdzie jest paczka?
+
+Paczka **nie leży w git** (folder `artifacts/` jest w `.gitignore`) i **nie jest na nuget.org** — budujesz ją lokalnie z tego repo.
+
+```bash
+./scripts/pack-nuget.sh
+```
+
+Wynik:
+
+```
+artifacts/nuget/Ops.Runtime.Seed.1.0.0.nupkg
+```
+
+Alternatywnie:
+
+```bash
+dotnet pack src/Ops.Runtime.Seed/Ops.Runtime.Seed.csproj -c Release -o ./artifacts/nuget
+```
+
+Pełny pipeline (testy + raport + pack):
+
+```bash
+./scripts/run-test-report.sh
+# → artifacts/nuget/Ops.Runtime.Seed.1.0.0.nupkg
+# → reports/test-report-*.html
+```
+
+### Instalacja w UiPath Studio
+
+1. **Manage Packages** → **Settings** → **Package Sources**
+2. **Add** → typ **Local**, folder: `.../rpalicense/artifacts/nuget`
+3. **Manage Packages** → wyszukaj **`Ops.Runtime.Seed`** → Install
+
+---
 
 ```bash
 cd src/Ops.Runtime.Seed
