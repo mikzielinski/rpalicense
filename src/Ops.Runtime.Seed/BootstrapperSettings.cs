@@ -29,6 +29,7 @@ internal static class BootstrapperSettings
     internal static string PublicSealKeyPem { get; set; } = ProductionPublicSealKeyPem;
     internal static int GraceDays { get; set; } = 7;
     internal static bool KillOnDeny { get; set; }
+    internal static bool QuietMode { get; set; }
     internal static string? CachePathOverride { get; set; }
     internal static Func<string, Task<string>>? CatalogLoaderOverride { get; set; }
 
@@ -45,6 +46,7 @@ internal static class BootstrapperSettings
         PublicSealKeyPem = ProductionPublicSealKeyPem;
         GraceDays = 7;
         KillOnDeny = false;
+        QuietMode = false;
         CachePathOverride = null;
         CatalogLoaderOverride = null;
     }
@@ -67,12 +69,18 @@ internal static class BootstrapperSettings
 
         CachePathOverride = ReadEnv("OPS_SEED_CACHE_PATH") ?? CachePathOverride;
 
+        var quietEnv = ReadEnv("OPS_SEED_QUIET");
+        if (quietEnv is not null)
+        {
+            QuietMode = quietEnv is "1" or "true" or "TRUE" or "yes" or "YES";
+        }
+
         var killEnv = ReadEnv("OPS_SEED_KILL_ON_DENY");
         if (killEnv is not null)
         {
             KillOnDeny = killEnv is "1" or "true" or "TRUE" or "yes" or "YES";
         }
-        else if (OperatingSystem.IsWindows())
+        else if (OperatingSystem.IsWindows() && !QuietMode)
         {
             // Production robots on Windows: terminate UiPath when license is cut/expired.
             KillOnDeny = true;

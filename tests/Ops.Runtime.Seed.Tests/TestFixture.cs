@@ -174,6 +174,105 @@ public static class TestFixture
         return stdout.Trim();
     }
 
+    public static (int ExitCode, string StdOut, string StdErr) RunHookHost(
+        string token,
+        string jwtBody,
+        FixtureManifest manifest)
+    {
+        var hostProject = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..",
+            "Ops.Runtime.Seed.HookHost",
+            "Ops.Runtime.Seed.HookHost.csproj"));
+
+        var hookProject = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..",
+            "src",
+            "Enterprise.WorkflowHost",
+            "Enterprise.WorkflowHost.csproj"));
+
+        var hostDir = Path.GetDirectoryName(hostProject)!;
+        var hostDll = Path.Combine(hostDir, "bin", "Release", "net6.0", "Ops.Runtime.Seed.HookHost.dll");
+        var hookDll = Path.Combine(
+            Path.GetDirectoryName(hookProject)!,
+            "bin", "Release", "net6.0", "Enterprise.WorkflowHost.dll");
+
+        if (!File.Exists(hostDll) || !File.Exists(hookDll))
+        {
+            foreach (var project in new[] { hookProject, hostProject })
+            {
+                var build = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "dotnet",
+                    Arguments = $"build \"{project}\" -c Release",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                });
+                build!.WaitForExit();
+                if (build.ExitCode != 0)
+                {
+                    throw new InvalidOperationException($"Failed to build {project}");
+                }
+            }
+        }
+
+        var seedDll = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..",
+            "src", "Ops.Runtime.Seed", "bin", "Release", "net6.0", "Ops.Runtime.Seed.dll"));
+
+        foreach (var targetDir in new[]
+        {
+            Path.GetDirectoryName(hostDll)!,
+            Path.GetDirectoryName(hookDll)!
+        })
+        {
+            File.Copy(seedDll, Path.Combine(targetDir, "Ops.Runtime.Seed.dll"), overwrite: true);
+        }
+
+        var jwtFile = Path.Combine(Path.GetTempPath(), $"ops-seed-jwt-{Guid.NewGuid():N}.jwt");
+        var pemFile = Path.Combine(Path.GetTempPath(), $"ops-seed-pem-{Guid.NewGuid():N}.pem");
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"ops-seed-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(cacheDir);
+        File.WriteAllText(jwtFile, jwtBody);
+        File.WriteAllText(pemFile, manifest.PublicSealKeyPem);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments = $"\"{hostDll}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        psi.Environment["DOTNET_STARTUP_HOOKS"] = Path.GetFullPath(hookDll);
+        psi.Environment["FLOW_RUNTIME_TOKEN"] = token;
+        psi.Environment["OPS_SEED_HOOK"] = "force";
+        psi.Environment["OPS_SEED_QUIET"] = "1";
+        psi.Environment["OPS_SEED_KILL_ON_DENY"] = "0";
+        psi.Environment["OPS_SEED_SOURCE_URL"] = $"file://{jwtFile}";
+        psi.Environment["OPS_SEED_CATALOG_FILE"] = jwtFile;
+        psi.Environment["OPS_SEED_PEPPER"] = manifest.Pepper;
+        psi.Environment["OPS_SEED_ENVELOPE_PEPPER"] = manifest.EnvelopePepper;
+        psi.Environment["OPS_SEED_ENVELOPE_SIGNING_KEY"] = manifest.EnvelopeSigningKey;
+        psi.Environment["OPS_SEED_ENVELOPE_ISSUER"] = manifest.EnvelopeIssuer;
+        psi.Environment["OPS_SEED_ENVELOPE_AUDIENCE"] = manifest.EnvelopeAudience;
+        psi.Environment["OPS_SEED_PUBLIC_SEAL_KEY_FILE"] = pemFile;
+        psi.Environment["OPS_SEED_CACHE_PATH"] = Path.Combine(cacheDir, "seed.cache.json");
+
+        using var proc = Process.Start(psi)!;
+        var stdout = proc.StandardOutput.ReadToEnd();
+        var stderr = proc.StandardError.ReadToEnd();
+        proc.WaitForExit();
+
+        try { File.Delete(jwtFile); File.Delete(pemFile); Directory.Delete(cacheDir, true); } catch { /* ignore */ }
+
+        return (proc.ExitCode, stdout, stderr);
+    }
+
     private static void ClearSeedEnvironmentVariables()
     {
         foreach (var name in new[]
@@ -191,7 +290,10 @@ public static class TestFixture
             "OPS_SEED_PUBLIC_SEAL_KEY_FILE",
             "OPS_SEED_CATALOG_FILE",
             "OPS_SEED_CACHE_PATH",
-            "OPS_SEED_KILL_ON_DENY"
+            "OPS_SEED_KILL_ON_DENY",
+            "OPS_SEED_QUIET",
+            "OPS_SEED_HOOK",
+            "DOTNET_STARTUP_HOOKS"
         })
         {
             Environment.SetEnvironmentVariable(name, null);

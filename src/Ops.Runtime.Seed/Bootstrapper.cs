@@ -466,6 +466,11 @@ public static class Bootstrapper
             HostGuard.TerminateUiPathProcesses();
         }
 
+        if (BootstrapperSettings.QuietMode)
+        {
+            Environment.Exit(1);
+        }
+
         if (!BootstrapperSettings.KillOnDeny)
         {
             return;

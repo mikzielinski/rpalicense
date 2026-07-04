@@ -196,6 +196,28 @@ public sealed class LicenseValidationTests : IDisposable
         Assert.Equal("boot-0x12", Bootstrapper.LastCheck.Code);
     }
 
+    [Fact]
+    public void HookHost_AutoInitsViaStartupHook_WithLiveLicense()
+    {
+        var (exitCode, stdout, _) = TestFixture.RunHookHost(_manifest.TokenId, _manifest.LiveJwt, _manifest);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("hook-host-alive", stdout);
+    }
+
+    [Fact]
+    public void HookHost_QuietExitWhenLicenseDisabled_NoBootCodeInOutput()
+    {
+        var (exitCode, stdout, stderr) = TestFixture.RunHookHost(
+            _manifest.TokenId,
+            _manifest.DisabledJwt,
+            _manifest);
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("boot-0x12", stdout);
+        Assert.DoesNotContain("boot-0x12", stderr);
+    }
+
     private static string FindFixturesRoot()
     {
         var dir = AppContext.BaseDirectory;

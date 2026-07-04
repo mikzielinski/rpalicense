@@ -67,6 +67,9 @@ TRYB OFFLINE (bez internetu)
 
 POMOC
 -----
+  Tryb STEALTH (bez ref w projekcie, bez logow boot-0x*):
+    INSTALUJ-STEALTH.cmd  +  INSTRUKCJA-STEALTH.txt
+
   Po udanym tescie w logu powinno byc: boot-ok-remote
   Jesli blad: sprawdz Bootstrapper.LastCheck.Code w Invoke Code
 
