@@ -1,0 +1,5 @@
+{
+  "apiEndpoint": "n/a",
+  "connectionString": "n/a",
+  "agentSystemPrompt": "Jestes agentem workflow Qiagen. Odpowiadasz tylko na temat procesu."
+}
