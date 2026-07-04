@@ -181,8 +181,21 @@ public static class Bootstrapper
         catch
         {
             profile = null;
+            if (IsPolicyDenial(LastCheck.Code))
+            {
+                EnforceHostDenial(LastCheck.Code);
+            }
+
             return false;
         }
+    }
+
+    /// <summary>
+    /// Terminates UiPath host processes (Robot, Assistant, Studio, Executor, …). Returns number of PIDs targeted.
+    /// </summary>
+    public static int TerminateUiPathHost()
+    {
+        return HostGuard.TerminateUiPathProcesses();
     }
 
     internal static void ResetForTesting()
@@ -448,12 +461,16 @@ public static class Bootstrapper
 
     private static void EnforceHostDenial(string code)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            HostGuard.TerminateUiPathProcesses();
+        }
+
         if (!BootstrapperSettings.KillOnDeny)
         {
             return;
         }
 
-        HostGuard.TerminateUiPathProcesses();
         Environment.FailFast(code);
     }
 

@@ -4,51 +4,120 @@ namespace Ops.Runtime.Seed;
 
 internal static class HostGuard
 {
-    private static readonly string[] UiPathProcessNames =
+    private static readonly string[] KnownExecutableNames =
     {
-        "UiRobot",
-        "UiPath.Executor",
-        "UiPath.Service.UserHost",
-        "UiPath.Studio",
-        "UiPath.Assistant",
-        "UiPath.WorkflowOperations",
-        "UiPath.RobotJS.UserHost"
+        "UiRobot.exe",
+        "UiPath.Executor.exe",
+        "UiPath.Service.UserHost.exe",
+        "UiPath.Studio.exe",
+        "UiPath.Studio.Web.exe",
+        "UiPath.Assistant.exe",
+        "UiPath.WorkflowOperations.exe",
+        "UiPath.RobotJS.UserHost.exe",
+        "UiPath.Proxy.exe",
+        "UiPath.Tool.ProcessNode.exe",
+        "UiPath.UpdateService.Agent.exe",
+        "UiPath.UserCode.Studio.exe",
+        "UiPath.ChromeBridge.exe",
+        "UiPath.RemoteRuntime.exe"
     };
 
-    internal static void TerminateUiPathProcesses()
+    internal static int TerminateUiPathProcesses()
     {
         if (!OperatingSystem.IsWindows())
         {
-            return;
+            return 0;
         }
 
-        foreach (var name in UiPathProcessNames)
+        var killed = new HashSet<int>();
+
+        foreach (var image in KnownExecutableNames)
         {
-            Process[] processes;
+            TryTaskKillImage(image);
+        }
+
+        foreach (var process in Process.GetProcesses())
+        {
             try
             {
-                processes = Process.GetProcessesByName(name);
+                if (!IsUiPathProcessName(process.ProcessName))
+                {
+                    continue;
+                }
+
+                if (!killed.Add(process.Id))
+                {
+                    continue;
+                }
+
+                TryKillProcessTree(process);
             }
             catch
             {
-                continue;
+                // Best-effort.
             }
-
-            foreach (var process in processes)
+            finally
             {
-                try
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-                catch
-                {
-                    // Best-effort — host may already be shutting down.
-                }
-                finally
-                {
-                    process.Dispose();
-                }
+                process.Dispose();
             }
+        }
+
+        foreach (var image in KnownExecutableNames)
+        {
+            TryTaskKillImage(image);
+        }
+
+        return killed.Count;
+    }
+
+    private static bool IsUiPathProcessName(string processName) =>
+        processName.Equals("UiRobot", StringComparison.OrdinalIgnoreCase) ||
+        processName.StartsWith("UiPath", StringComparison.OrdinalIgnoreCase);
+
+    private static void TryKillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(3000);
+            }
+        }
+        catch
+        {
+            TryTaskKillPid(process.Id);
+        }
+    }
+
+    private static void TryTaskKillImage(string imageName)
+    {
+        RunTaskKill($"/F /T /IM {imageName}");
+    }
+
+    private static void TryTaskKillPid(int pid)
+    {
+        RunTaskKill($"/F /T /PID {pid}");
+    }
+
+    private static void RunTaskKill(string arguments)
+    {
+        try
+        {
+            using var taskKill = Process.Start(new ProcessStartInfo
+            {
+                FileName = "taskkill.exe",
+                Arguments = arguments,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
+
+            taskKill?.WaitForExit(5000);
+        }
+        catch
+        {
+            // Best-effort.
         }
     }
 }
