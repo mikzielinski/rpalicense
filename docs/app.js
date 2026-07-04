@@ -158,6 +158,14 @@ function formatPublishBlockers() {
   return `Brakuje: ${state.publishMissing.join(", ")}`;
 }
 
+async function refreshCatalogFromPages() {
+  const jwt = await fetchText(state.settings.seedUrl);
+  catalog = await unwrapSeedJwt(jwt);
+  state.liveLoadedAt = new Date();
+  state.dirty = false;
+  await loadAuditLogFromServer();
+}
+
 async function refreshFromLive(manual = false) {
   saveSettingsFromForm();
   if (state.dirty && manual) {
@@ -174,13 +182,20 @@ async function refreshFromLive(manual = false) {
 
   try {
     if (publishReady()) {
-      await syncCatalogFromGitHubApi();
+      try {
+        await syncCatalogFromGitHubApi();
+      } catch (apiError) {
+        await refreshCatalogFromPages();
+        if (manual) {
+          setStatus(
+            "publishStatus",
+            `Załadowano z Pages. GitHub API: ${apiError.message}`,
+            "warn"
+          );
+        }
+      }
     } else {
-      const jwt = await fetchText(`${state.settings.seedUrl}?_=${Date.now()}`);
-      catalog = await unwrapSeedJwt(jwt);
-      state.liveLoadedAt = new Date();
-      state.dirty = false;
-      await loadAuditLogFromServer();
+      await refreshCatalogFromPages();
     }
     setHeader(`Załadowano ${catalog.entries.length} licencji z serwera (${state.liveLoadedAt.toLocaleString()}).`, "ok");
     if (manual) {
@@ -849,8 +864,7 @@ async function githubRequest(url, method, body, options = {}) {
     resp = await fetch(url, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
-      cache: "no-store"
+      body: body ? JSON.stringify(body) : undefined
     });
   } catch (error) {
     const hint =
