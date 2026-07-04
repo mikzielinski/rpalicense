@@ -321,3 +321,6 @@ Write-Host @'
       throw new System.Exception(Ops.Runtime.Seed.Bootstrapper.LastCheck.Code);
   System.Console.WriteLine(profile.ApiEndpoint);
 '@
+Write-Host ''
+Write-Host 'Opcja STEALTH (bez ref w projekcie):' -ForegroundColor DarkGray
+Write-Host '  release\windows-uipath\INSTALUJ-STEALTH.cmd + INSTRUKCJA-STEALTH.txt' -ForegroundColor DarkGray

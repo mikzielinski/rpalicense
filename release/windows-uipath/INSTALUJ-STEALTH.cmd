@@ -15,8 +15,10 @@ set "DEST=%ProgramData%\Enterprise\WorkflowHost"
 
 echo.
 echo ========================================
-echo   STEALTH — instalacja hosta workflow
+echo   STEALTH — opcja alternatywna (nie domyslna)
 echo ========================================
+echo.
+echo Metoda glowna: INSTALUJ.cmd + INSTRUKCJA-UIPATH.txt
 echo.
 echo Cel: %DEST%
 echo.

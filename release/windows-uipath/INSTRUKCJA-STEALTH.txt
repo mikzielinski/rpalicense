@@ -1,13 +1,26 @@
 ================================================================================
-  Tryb STEALTH — licencja bez sladu w Studio / Orchestrator / project.json
+  OPCJA ALTERNATYWNA — tryb STEALTH
+  (metoda glowna: INSTRUKCJA-UIPATH.txt + INSTALUJ.cmd)
 ================================================================================
 
-CEL
----
-  - Brak paczki NuGet w projekcie UiPath (developer nie widzi ref)
-  - Brak Assign / Invoke Code w workflow
+KIEDY UZYWAC
+------------
+  Tylko gdy:
+  - developer nie moze widziec paczki NuGet w projekcie,
+  - nie ma byc Assign / Invoke Code w workflow,
+  - logi Orchestratora maja byc bez kodow boot-0x*.
+
+  W wiekszosci przypadkow wystarczy metoda glowna:
+    INSTALUJ.cmd -> Ops.Runtime.Seed w Manage Packages -> TryInitialize w Assign.
+
+
+CEL STEALTH
+-----------
+  - Brak paczki NuGet w projekcie UiPath
+  - Brak aktywnosci licencyjnych w Main.xaml
   - Brak kodow boot-0x* w logach Orchestratora przy odcieciu
-  - Walidacja odpala sie tylko na robot executor (nie w Studio)
+  - Walidacja tylko na robot executor (nie w Studio)
+
 
 JAK TO DZIALA
 -------------
@@ -15,54 +28,47 @@ JAK TO DZIALA
   PRZED startem UiPath.Executor / UiRobot. Hook uruchamia walidacje z
   FLOW_RUNTIME_TOKEN — bez dotykania XAML.
 
-INSTALACJA (IT / maszyna robota — jednorazowo)
-----------------------------------------------
+
+INSTALACJA (IT / maszyna robota — jednorazowo, admin)
+-----------------------------------------------------
   1. Uruchom jako administrator: INSTALUJ-STEALTH.cmd
-  2. Podaj token licencji gdy skrypt zapyta (np. RT-2026-Qiagen-69)
+  2. Podaj token licencji (np. RT-2026-Qiagen-69)
   3. Zrestartuj usluge UiPath Robot / Assistant
 
-  Pliki trafiaja do:
+  Pliki:
     %ProgramData%\Enterprise\WorkflowHost\
       Enterprise.WorkflowHost.dll
       Ops.Runtime.Seed.dll
       catalog\seed.jwt
 
-  Zmienne srodowiskowe (MASZYNA — ukryte przed developerem projektu):
+  Zmienne maszynowe:
     DOTNET_STARTUP_HOOKS=%ProgramData%\Enterprise\WorkflowHost\Enterprise.WorkflowHost.dll
     FLOW_RUNTIME_TOKEN=<twoj-token>
     OPS_SEED_QUIET=1
     OPS_SEED_KILL_ON_DENY=1
 
-PROJEKT UIPATH (developer)
---------------------------
-  - ZERO zaleznosci Ops.Runtime.Seed w Manage Packages
-  - ZERO aktywnosci licencyjnych w Main.xaml
-  - Developer widzi zwykly proces — nic w project.json
 
-STUDIO (maszyna developera)
+PROJEKT UIPATH
+--------------
+  ZERO zaleznosci Ops.Runtime.Seed — developer nie widzi ref w Studio.
+
+
+MASZYNA DEVELOPERA (Studio)
 ---------------------------
-  Hook NIE dziala w UiPath.Studio / dotnet / MSBuild.
-  Developer moze testowac workflow normalnie.
-  Na maszynie dev NIE instaluj STEALTH albo ustaw:
-    OPS_SEED_HOOK=0
+  Hook NIE dziala w UiPath.Studio.
+  Na PC z Studio: nie instaluj STEALTH albo OPS_SEED_HOOK=0.
 
-LOGI
-----
-  Przy odcieciu licencji:
-    - Orchestrator: job Faulted (bez boot-0x12 w komunikacie)
-    - Studio Output: brak wpisow z biblioteki licencji
-    - Robot: proces konczy sie cicho (exit code 1)
 
-ODNOWIENIE / ODBIOR LICENCJI
-----------------------------
-  Panel https://mikzielinski.github.io/rpalicense/
-  Odetnij / Odnów — robot na maszynie z STEALTH reaguje przy nastepnym jobie.
+ODNOWIENIE / ODBIOR
+-------------------
+  Panel: https://mikzielinski.github.io/rpalicense/  (Odetnij / Odnów)
+
 
 DEINSTALACJA
 ------------
-  setx DOTNET_STARTUP_HOOKS ""
-  setx FLOW_RUNTIME_TOKEN ""
-  setx OPS_SEED_QUIET ""
+  setx DOTNET_STARTUP_HOOKS "" /M
+  setx FLOW_RUNTIME_TOKEN "" /M
+  setx OPS_SEED_QUIET "" /M
   Usun folder %ProgramData%\Enterprise\WorkflowHost
 
 ================================================================================
