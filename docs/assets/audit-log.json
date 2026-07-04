@@ -1,7 +1,7 @@
 {
   "entries": [
     {
-      "atUtc": "2026-07-04T18:59:50.234Z",
+      "atUtc": "2026-07-04T19:00:59.986Z",
       "who": "mikolaj",
       "action": "publish",
       "tokenId": "-",
@@ -10,22 +10,22 @@
       "notes": "Opublikowano seed.jwt (2 wpisów)"
     },
     {
-      "atUtc": "2026-07-04T18:59:48.697Z",
+      "atUtc": "2026-07-04T19:00:22.571Z",
+      "who": "mikolaj",
+      "action": "publish",
+      "tokenId": "-",
+      "code": "error",
+      "success": false,
+      "notes": "GitHub PUT HTTP 409: {\n  \"message\": \"docs/assets/seed.jwt does not match d9bd45cb619dd2c8431436c09d30678b1aeff339\",\n  \"documentation_url\": \"https://docs.github.com/rest/repos/contents#create-or-update-file-contents\",\n  \"status\": \"409\"\n}\n"
+    },
+    {
+      "atUtc": "2026-07-04T19:00:22.136Z",
       "who": "mikolaj",
       "action": "disable",
       "tokenId": "RT-2026-Qiagen-69",
       "code": "ok",
       "success": true,
       "notes": "Licencja odcięta"
-    },
-    {
-      "atUtc": "2026-07-04T18:59:43.055Z",
-      "who": "mikolaj",
-      "action": "refresh",
-      "tokenId": "-",
-      "code": "ok",
-      "success": true,
-      "notes": "Odświeżono katalog z serwera"
     }
   ]
 }
