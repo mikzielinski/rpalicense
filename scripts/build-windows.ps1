@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Buduje Ops.Runtime.Seed i przygotowuje folder C:\OpsRuntime pod UiPath.
+    Buduje Ops.Runtime.Seed i przygotowuje folder OpsRuntime pod UiPath.
 
 .DESCRIPTION
     1. (opcjonalnie) generuje seed.jwt z fixture'ow testowych
@@ -10,7 +10,7 @@
     4. kopiuje DLL, nupkg i pliki testowe do lokalnego folderu
 
 .PARAMETER OutputRoot
-    Docelowy folder (domyslnie C:\OpsRuntime).
+    Docelowy folder (domyslnie %USERPROFILE%\OpsRuntime, bez uprawnien administratora).
 
 .PARAMETER GenerateFixtures
     Generuje seed.live.jwt z katalogu test-fixtures (wymaga .NET 8 dla keygen).
@@ -26,7 +26,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$OutputRoot = 'C:\OpsRuntime',
+    [string]$OutputRoot = '',
     [switch]$GenerateFixtures,
     [switch]$SkipBuild
 )
@@ -34,7 +34,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Root = Resolve-Path (Join-Path $PSScriptRoot '..')
+if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
+    $OutputRoot = Join-Path $env:USERPROFILE 'OpsRuntime'
+}
+
+$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Project = Join-Path $Root 'src\Ops.Runtime.Seed\Ops.Runtime.Seed.csproj'
 $KeygenProject = Join-Path $Root 'keygen\SeedForge.csproj'
 $ConfigPath = Join-Path $Root 'test-fixtures\test-config.json'
@@ -45,6 +49,32 @@ $SeedLiveJwt = Join-Path $Root 'test-fixtures\seed.live.jwt'
 function Write-Step([string]$Message) {
     Write-Host ''
     Write-Host "==> $Message" -ForegroundColor Cyan
+}
+
+function Initialize-OutputRoot {
+    Write-Step "Tworzenie folderu docelowego: $OutputRoot"
+    try {
+        New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
+        $probe = Join-Path $OutputRoot '.write-test'
+        'ok' | Set-Content -Path $probe -Encoding ASCII
+        Remove-Item -Path $probe -Force
+    }
+    catch {
+        throw @"
+Nie mozna utworzyc folderu: $OutputRoot
+Powod: $($_.Exception.Message)
+
+Sprobuj recznie:
+  mkdir "$OutputRoot"
+lub uruchom z innym folderem:
+  .\scripts\build-windows.ps1 -OutputRoot "D:\OpsRuntime"
+"@
+    }
+
+    foreach ($sub in @('nuget', 'lib', 'catalog')) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $OutputRoot $sub) | Out-Null
+    }
+    Write-Host "    OK: $OutputRoot" -ForegroundColor Green
 }
 
 function Invoke-DotNet {
@@ -167,7 +197,7 @@ function Copy-BuildArtifacts {
         $cfg = Get-TestConfig
         @"
 # Zmienne srodowiskowe do testu offline (Panel systemu Windows lub setx)
-OPS_SEED_CATALOG_FILE=$catalogDir\seed.jwt
+OPS_SEED_CATALOG_FILE=$(Join-Path $catalogDir 'seed.jwt')
 OPS_SEED_PEPPER=$($cfg.pepper)
 OPS_SEED_ENVELOPE_PEPPER=$($cfg.envelopePepper)
 OPS_SEED_ENVELOPE_SIGNING_KEY=$($cfg.envelopeSigningKey)
@@ -198,6 +228,8 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw '.NET SDK nie jest zainstalowany. Zainstaluj .NET SDK 6.0+ z https://dotnet.microsoft.com/download'
 }
 
+Initialize-OutputRoot
+
 if ($GenerateFixtures) {
     New-Fixtures
 }
@@ -227,10 +259,15 @@ if (-not $nupkgSource) {
 Write-Step 'Kopiowanie do folderu UiPath'
 $out = Copy-BuildArtifacts -DllSource $dllSource -NuGetSource $nupkgSource.FullName
 
+if (-not (Test-Path $out.Dll)) {
+    throw "Kopiowanie nie powiodlo sie — brak pliku: $($out.Dll)"
+}
+
 Write-Host ''
 Write-Host '========================================' -ForegroundColor Green
 Write-Host ' Gotowe' -ForegroundColor Green
 Write-Host '========================================' -ForegroundColor Green
+Write-Host "  Folder:     $OutputRoot"
 Write-Host "  DLL:        $($out.Dll)"
 Write-Host "  NuGet:      $($out.NuGet)"
 if ($out.SeedJwt) {
