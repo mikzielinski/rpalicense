@@ -1,6 +1,6 @@
 namespace Ops.Runtime.Seed;
 
-public sealed class RuntimeProfile
+internal sealed class RuntimeProfile
 {
     public string ApiEndpoint { get; init; } = string.Empty;
     public string ConnectionString { get; init; } = string.Empty;

@@ -1,6 +1,6 @@
 namespace Ops.Runtime.Seed;
 
-public sealed class ValidationSnapshot
+internal sealed class ValidationSnapshot
 {
     public bool Success { get; init; }
     public bool UsedCache { get; init; }

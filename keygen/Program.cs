@@ -25,6 +25,8 @@ try
             return RunReseal(args);
         case "unwrapjwt":
             return RunUnwrapJwt(args);
+        case "packclient":
+            return RunPackClient(args);
         default:
             PrintHelp();
             return 1;
@@ -383,6 +385,101 @@ static string SignHs256(string message, string signingKey)
     return Base64UrlEncode(signature);
 }
 
+static int RunPackClient(string[] args)
+{
+    if (args.Length < 2)
+    {
+        Console.WriteLine("usage: packclient <tokenId> [outputDir] [--client-name NAME]");
+        return 1;
+    }
+
+    var tokenId = args[1];
+    if (!tokenId.StartsWith("RT-", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("tokenId must start with RT-");
+    }
+
+    var outputDir = "dist/clients";
+    var clientName = string.Empty;
+    var scriptArgs = new List<string>();
+
+    for (var i = 2; i < args.Length; i++)
+    {
+        if (args[i] == "--client-name" && i + 1 < args.Length)
+        {
+            clientName = args[++i];
+            scriptArgs.Add("--client-name");
+            scriptArgs.Add(clientName);
+            continue;
+        }
+
+        if (!args[i].StartsWith('-'))
+        {
+            outputDir = args[i];
+            continue;
+        }
+
+        throw new InvalidOperationException($"unknown option: {args[i]}");
+    }
+
+    var repoRoot = FindRepoRoot();
+    var scriptPath = Path.Combine(repoRoot, "scripts", "generate-client-package.sh");
+    if (!File.Exists(scriptPath))
+    {
+        throw new FileNotFoundException("generate-client-package.sh not found", scriptPath);
+    }
+
+    var psi = new System.Diagnostics.ProcessStartInfo
+    {
+        FileName = "/bin/bash",
+        WorkingDirectory = repoRoot,
+        UseShellExecute = false,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true
+    };
+    psi.ArgumentList.Add(scriptPath);
+    psi.ArgumentList.Add(tokenId);
+    psi.ArgumentList.Add("--output-dir");
+    psi.ArgumentList.Add(Path.GetFullPath(outputDir));
+    foreach (var arg in scriptArgs)
+    {
+        psi.ArgumentList.Add(arg);
+    }
+
+    using var proc = System.Diagnostics.Process.Start(psi)!;
+    var stdout = proc.StandardOutput.ReadToEnd();
+    var stderr = proc.StandardError.ReadToEnd();
+    proc.WaitForExit();
+
+    if (!string.IsNullOrWhiteSpace(stdout))
+    {
+        Console.Write(stdout);
+    }
+
+    if (!string.IsNullOrWhiteSpace(stderr))
+    {
+        Console.Error.Write(stderr);
+    }
+
+    return proc.ExitCode;
+}
+
+static string FindRepoRoot()
+{
+    var dir = AppContext.BaseDirectory;
+    while (!string.IsNullOrEmpty(dir))
+    {
+        if (File.Exists(Path.Combine(dir, "scripts", "generate-client-package.sh")))
+        {
+            return dir;
+        }
+
+        dir = Directory.GetParent(dir)?.FullName ?? string.Empty;
+    }
+
+    throw new FileNotFoundException("Could not locate repo root (scripts/generate-client-package.sh).");
+}
+
 static void PrintHelp()
 {
     Console.WriteLine("SeedForge");
@@ -392,6 +489,7 @@ static void PrintHelp()
     Console.WriteLine("  exportjwk <privateKeyPemPath>");
     Console.WriteLine("  reseal <catalogJsonPath> <privateKeyPemPath>");
     Console.WriteLine("  unwrapjwt <jwtPathOrDash> <jwtSigningKey> <envelopePepper> <issuer> <audience>");
+    Console.WriteLine("  packclient <tokenId> [outputDir] [--client-name NAME]");
 }
 
 internal sealed class CatalogEntry

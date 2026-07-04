@@ -1,6 +1,6 @@
 namespace Ops.Runtime.Seed;
 
-public static class BootstrapperDiagnostics
+internal static class BootstrapperDiagnostics
 {
     public static bool ModuleInitAttempted { get; internal set; }
     public static bool ModuleInitSucceeded { get; internal set; }
