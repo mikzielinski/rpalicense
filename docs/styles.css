@@ -240,8 +240,9 @@ tbody tr:hover {
   color: var(--bad);
 }
 
-code {
-  font-size: 0.85em;
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (max-width: 700px) {

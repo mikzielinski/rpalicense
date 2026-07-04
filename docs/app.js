@@ -103,7 +103,7 @@ function bindUi() {
     setStatus("settingsStatus", "Ustawienia zapisane w przeglądarce.", "ok");
   });
   byId("btnRefreshLive").addEventListener("click", () => refreshFromLive(true));
-  byId("btnPublishAll").addEventListener("click", publishAll);
+  byId("btnPublishAll").addEventListener("click", () => publishAll());
   byId("btnCreateLicense").addEventListener("click", createLicense);
   byId("btnCheckLive").addEventListener("click", checkLiveStatus);
   byId("btnClearLocalLog").addEventListener("click", () => {
@@ -136,6 +136,12 @@ function publishReady() {
 
 async function refreshFromLive(manual = false) {
   saveSettingsFromForm();
+  if (state.dirty && manual) {
+    const ok = confirm(
+      "Masz nieopublikowane zmiany lokalne. Odświeżenie nadpisze je danymi z serwera. Kontynuować?"
+    );
+    if (!ok) return;
+  }
   if (!settingsReady()) {
     setHeader("Skonfiguruj ustawienia (sekrety + URL seed.jwt).", "warn");
     if (manual) setStatus("publishStatus", "Brak kompletnych ustawień.", "warn");
@@ -178,30 +184,73 @@ function auditLogPublicUrl() {
   return seed.replace(/seed\.jwt(\?.*)?$/, "audit-log.json");
 }
 
-async function publishAll() {
+async function publishAll(options = {}) {
   saveSettingsFromForm();
   if (!publishReady()) {
-    return setStatus("publishStatus", "Uzupełnij ustawienia: sekrety, PAT, owner, repo.", "warn");
+    const msg = "Uzupełnij ustawienia: sekrety, PAT, owner, repo.";
+    setStatus("publishStatus", msg, "warn");
+    return { ok: false, error: msg };
   }
   if (!catalog.entries.length) {
-    return setStatus("publishStatus", "Katalog jest pusty — utwórz licencję.", "warn");
+    const msg = "Katalog jest pusty — utwórz licencję.";
+    setStatus("publishStatus", msg, "warn");
+    return { ok: false, error: msg };
   }
 
-  setStatus("publishStatus", "Publikuję…", "");
+  setPublishing(true);
+  setStatus("publishStatus", "Publikuję na GitHub…", "");
   try {
     await resealAllEntries();
     const jwt = await buildSeedJwt(catalog);
-    await publishGitHubFile(state.settings.ghSeedPath, `${jwt}\n`, "Update seed.jwt (panel)");
+    await publishGitHubFile(state.settings.ghSeedPath, `${jwt}\n`, options.commitMessage ?? "Update seed.jwt (panel)");
     appendAudit("publish", null, "ok", `Opublikowano seed.jwt (${catalog.entries.length} wpisów)`);
     await publishAuditLog();
     state.dirty = false;
-    setStatus("publishStatus", "Opublikowano seed.jwt + dziennik. Poczekaj ~1–2 min na Pages.", "ok");
-    setHeader(`Opublikowano ${catalog.entries.length} licencji.`, "ok");
+    const msg = "Opublikowano na GitHub. Pages odświeży się za ~1–2 min.";
+    setStatus("publishStatus", msg, "ok");
+    setHeader(`Opublikowano ${catalog.entries.length} licencji na serwerze.`, "ok");
+    renderAll();
+    return { ok: true };
   } catch (error) {
-    setStatus("publishStatus", `Błąd: ${error.message}`, "bad");
+    setStatus("publishStatus", `Błąd publikacji: ${error.message}`, "bad");
     appendAudit("publish", null, "error", error.message);
+    renderAuditTable();
+    return { ok: false, error: error.message };
+  } finally {
+    setPublishing(false);
   }
+}
+
+async function applyChangeAndPublish(actionLabel, tokenId) {
   renderAll();
+  if (!publishReady()) {
+    setStatus(
+      "publishStatus",
+      `${actionLabel}: zapisano lokalnie. Uzupełnij PAT w ustawieniach i kliknij „Zapisz i opublikuj”.`,
+      "warn"
+    );
+    return false;
+  }
+  const result = await publishAll({
+    commitMessage: `Panel: ${actionLabel} ${tokenId}`
+  });
+  if (result.ok) {
+    setStatus("publishStatus", `${actionLabel} — opublikowano na serwerze.`, "ok");
+  }
+  return result.ok;
+}
+
+let publishing = false;
+
+function setPublishing(on) {
+  publishing = on;
+  for (const id of ["btnPublishAll", "btnRefreshLive", "btnCreateLicense"]) {
+    const el = byId(id);
+    if (el) el.disabled = on;
+  }
+  document.querySelectorAll("#licenseTableBody button").forEach((b) => {
+    b.disabled = on;
+  });
 }
 
 async function createLicense() {
@@ -234,9 +283,9 @@ async function createLicense() {
     catalog.entries.push(entry);
     state.dirty = true;
     appendAudit("create", tokenId, "ok", `Utworzono licencję dla ${owner}`);
-    setStatus("createStatus", `Utworzono ${tokenId}. Kliknij „Zapisz i opublikuj”.`, "ok");
     byId("newTokenId").value = "";
-    renderAll();
+    const ok = await applyChangeAndPublish("Utworzono", tokenId);
+    setStatus("createStatus", ok ? `Utworzono i opublikowano ${tokenId}.` : `Utworzono lokalnie ${tokenId} — brak publikacji.`, ok ? "ok" : "warn");
   } catch (error) {
     setStatus("createStatus", error.message, "bad");
   }
@@ -270,8 +319,18 @@ async function issueEntry({ tokenId, owner, validToUtc, hosts, agentPrompt }) {
 }
 
 async function mutateLicense(tokenId, mode) {
+  if (publishing) return;
+
+  const labels = { disable: "Odcięcie", renew: "Odnowienie", delete: "Usunięcie" };
+  const verbs = {
+    disable: `Odetnąć licencję ${tokenId} i opublikować na serwerze?`,
+    renew: `Odnowić licencję ${tokenId} i opublikować na serwerze?`,
+    delete: `Usunąć licencję ${tokenId} z katalogu i opublikować?`
+  };
+  if (!confirm(verbs[mode])) return;
+
   const entry = catalog.entries.find((e) => e.tokenId === tokenId);
-  if (!entry) return;
+  if (!entry && mode !== "delete") return;
 
   if (mode === "disable") {
     entry.enabled = false;
@@ -287,8 +346,7 @@ async function mutateLicense(tokenId, mode) {
   }
 
   state.dirty = true;
-  setStatus("publishStatus", "Zmiana lokalna — kliknij „Zapisz i opublikuj”.", "warn");
-  renderAll();
+  await applyChangeAndPublish(labels[mode], tokenId);
 }
 
 async function checkLiveStatus() {
