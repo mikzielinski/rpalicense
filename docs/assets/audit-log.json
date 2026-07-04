@@ -1,6 +1,33 @@
 {
   "entries": [
     {
+      "atUtc": "2026-07-04T19:12:02.176Z",
+      "who": "mikolaj",
+      "action": "publish",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "seed.jwt → commit af8a09a"
+    },
+    {
+      "atUtc": "2026-07-04T19:12:00.865Z",
+      "who": "mikolaj",
+      "action": "disable",
+      "tokenId": "RT-2026-Qiagen-69",
+      "code": "ok",
+      "success": true,
+      "notes": "Licencja odcięta"
+    },
+    {
+      "atUtc": "2026-07-04T19:11:36.813Z",
+      "who": "mikolaj",
+      "action": "refresh",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "Odświeżono katalog z serwera"
+    },
+    {
       "atUtc": "2026-07-04T19:05:28.733Z",
       "who": "mikolaj",
       "action": "publish",
