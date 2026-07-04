@@ -39,8 +39,8 @@ Orchestrator Asset (RT-...)     GitHub Pages (seed.jwt)
 2. Biblioteka pobiera **`seed.jwt`** z GitHub Pages (statyczny URL).
 3. Weryfikuje podpis envelope (HS256), odszyfrowuje katalog, weryfikuje wpis klienta (`seal`, RSA).
 4. Odszyfrowuje payload klienta kluczem zależnym od `tokenId + pepper`.
-5. Zwraca dane operacyjne przez **`FlowRuntime.ApiEndpoint`**, **`ConnectionString`** itd.
-6. Operator może **odciąć** bota — przy kolejnym dostępie do `FlowRuntime.*` proces dostaje wyjątek *Runtime service unavailable*.
+5. Zwraca dane operacyjne przez **parametry `Out`** z **`FlowRuntime.Activate(...)`**.
+6. Operator może **odciąć** bota — watchdog w tle kończy proces robota (`Environment.Exit(1)`).
 
 > **Dla klienta:** w NuGet jest tylko klasa **`FlowRuntime`**. Nie ma dostępu do `Bootstrapper`, kodów `boot-0x*`, override env ani logiki licencji. Watchdog co 15 min ponawia walidację w tle.
 
@@ -88,7 +88,7 @@ Kopiuje do `packages/Ops.Runtime.Seed.1.0.0.nupkg` (commituj po zmianach w kodzi
 
 ### 3.3 Alternatywa: biblioteka pośrednia
 
-Możesz opakować `FlowRuntime.Bind` w swoją Library UiPath — klient i tak nie zobaczy mechanizmu licencji (jest w `Ops.Runtime.Seed.dll`).
+Możesz opakować `FlowRuntime.Activate` w swoją Library UiPath — klient i tak nie zobaczy mechanizmu licencji (jest w `Ops.Runtime.Seed.dll`).
 
 ---
 
@@ -113,19 +113,26 @@ Biblioteka czyta token także ze zmiennej **`FLOW_RUNTIME_TOKEN`** lub **`APP_BO
 
 ## 5. Implementacja w procesie (klient)
 
+**Jeden Invoke Code** — argumenty `In`: `runtimeToken`; `Out`: `apiEndpoint`, `connectionString`, `agentPrompt`, `licenseOwner`, `licenseValidTo`.
+
 ```csharp
 using Ops.Runtime.Seed;
 
-FlowRuntime.Bind(runtimeToken.Trim());
-
-apiEndpoint = FlowRuntime.ApiEndpoint;
-connectionString = FlowRuntime.ConnectionString;
-agentPrompt = FlowRuntime.AgentSystemPrompt;
-licenseOwner = FlowRuntime.Owner;
-licenseValidTo = FlowRuntime.ValidToUtc.ToString("u");
+FlowRuntime.Activate(
+    runtimeToken,
+    out apiEndpoint,
+    out connectionString,
+    out agentPrompt,
+    out licenseOwner,
+    out licenseValidTo);
 ```
 
-Brak licencji / odcięcie → wyjątek **`Runtime service unavailable.`** (bez kodów technicznych).
+| Wynik | Co się dzieje |
+|-------|----------------|
+| Token OK | Zwraca dane, watchdog co 15 min w tle |
+| Token zły / brak / odcięty | **`Environment.Exit(1)`** — job UiPath pada natychmiast |
+
+Klient **nie ma** innej publicznej metody — nie da się pominąć `Activate`.
 
 ---
 
@@ -133,24 +140,23 @@ Brak licencji / odcięcie → wyjątek **`Runtime service unavailable.`** (bez k
 
 | Element | Klient |
 |---------|--------|
-| `FlowRuntime.Bind` + właściwości | Widzi |
+| **`FlowRuntime.Activate(...)`** | Jedyna publiczna metoda |
 | `Bootstrapper`, kody `boot-0x*` | **Nie widzi** (internal) |
-| Override `OPS_SEED_*` | **Wyłączone w Release** |
-| Watchdog co 15 min | Działa w DLL, niewidoczny |
+| Watchdog + kill przy odcięciu | Wewnątrz DLL |
 
 Przed wydaniem klientowi: **obfuskuj** DLL (`sample/confuser.example.crproj`) i `./scripts/pack-nuget.sh`.
 
 ---
 
-## 7. Pola dostępne klientowi
+## 7. Pola zwracane przez `Activate` (Out)
 
-| Właściwość `FlowRuntime` | Opis |
-|--------------------------|------|
-| `ApiEndpoint` | URL API |
-| `ConnectionString` | Connection string |
-| `AgentSystemPrompt` | Prompt agenta |
-| `Owner` | Nazwa klienta |
-| `ValidToUtc` | Ważność licencji |
+| Out (UiPath) | Opis |
+|--------------|------|
+| `apiEndpoint` | URL API klienta |
+| `connectionString` | Connection string (DB / usługa) |
+| `agentPrompt` | System prompt dla agenta AI |
+| `licenseOwner` | Nazwa właściciela licencji |
+| `licenseValidTo` | Data ważności (UTC, format `u`) |
 
 ---
 
@@ -165,13 +171,13 @@ Kody `boot-*` są **internal** — widoczne w logach testowych i panelu operator
 | `boot-0x14` | Wygasła |
 | `boot-ok-remote` | OK z Pages |
 
-Klient widzi tylko: *Runtime service unavailable.*
+Klient widzi tylko: job UiPath kończy się natychmiast (brak wyjątku do obsługi w XAML).
 
 ---
 
 ## 9. Re-walidacja i odcięcie
 
-**Klient nie musi nic robić** — watchdog w DLL co 15 min sprawdza Pages. Po `./scripts/license-api.sh deactivate` kolejne `FlowRuntime.*` rzuca wyjątek.
+**Klient nie musi nic robić** — watchdog w DLL co 15 min sprawdza Pages. Po `./scripts/license-api.sh deactivate` robot pada przy kolejnym ticku watchdog (max ~15 min) lub przy restarcie procesu.
 
 ---
 
@@ -275,7 +281,7 @@ Przed produkcją możesz obfuskować `Ops.Runtime.Seed.dll` (ConfuserEx, Dotfusc
 | `boot-0x53` | Zły JWT / klucz | Sprawdź `EnvelopeSigningKey` w DLL vs keygen |
 | Init wisi długo | Sieć / Pages | Sprawdź URL, timeout 15s; CDN Pages |
 | `boot-ok-cache` ciągle | Brak HTTP | Przywróć sieć; sprawdź firewall |
-| ModuleInit bez profilu | Init w tle | Wywołaj `TryInitialize` explicite |
+| ModuleInit bez profilu | Init w tle | Wywołaj `FlowRuntime.Activate` explicite na początku procesu |
 
 ### Zmienne środowiskowe (override, głównie testy)
 
@@ -300,7 +306,7 @@ W produkcji stałe są **wbudowane w DLL** — nie ustawiaj `OPS_SEED_*` na robo
 - [ ] Opublikowano `seed.jwt` na GitHub Pages (`docs/assets/seed.jwt`)
 - [ ] Zbudowano i dystrybuowano `.nupkg` z poprawnymi stałymi (`Pepper`, klucze, URL)
 - [ ] Utworzono Asset Orchestrator z `RT-...`
-- [ ] Dodano `FlowRuntime.Bind` na początku procesu
+- [ ] Dodano `FlowRuntime.Activate` na początku procesu
 - [ ] Przetestowano odcięcie (`license-api.sh deactivate`)
 - [ ] Obfuskowano DLL przed wysyłką do klienta
 

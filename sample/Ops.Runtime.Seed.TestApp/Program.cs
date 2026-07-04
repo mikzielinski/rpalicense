@@ -2,6 +2,7 @@ using System.Text.Json;
 using Ops.Runtime.Seed;
 
 ApplyTestHarnessFromEnvironment();
+FlowRuntime.KillHostOnFailure = false;
 
 var token = Environment.GetEnvironmentVariable("FLOW_RUNTIME_TOKEN")
     ?? Environment.GetEnvironmentVariable("APP_BOOT_TOKEN")
@@ -25,8 +26,14 @@ if (string.IsNullOrWhiteSpace(token))
 
 try
 {
-    FlowRuntime.Bind(token.Trim());
-    var profile = Bootstrapper.Current;
+    FlowRuntime.Activate(
+        token.Trim(),
+        out var apiEndpoint,
+        out var connectionString,
+        out var agentPrompt,
+        out var owner,
+        out var validToUtc);
+
     report["scenario"] = "po-nadaniu";
     report["success"] = true;
     report["code"] = Bootstrapper.LastCheck.Code;
@@ -35,10 +42,10 @@ try
     report["lastCheck"] = Bootstrapper.LastCheck;
     report["profile"] = new
     {
-        profile.TokenId,
-        profile.Owner,
-        profile.ApiEndpoint,
-        profile.ValidToUtc
+        TokenId = token.Trim(),
+        owner,
+        apiEndpoint,
+        ValidToUtc = validToUtc
     };
     WriteReport(report);
     return 0;

@@ -12,17 +12,20 @@ Ops.Runtime.Seed.1.0.0.nupkg
 2. Folder: pełna ścieżka do tego katalogu `packages/`
 3. **Manage Packages** → **`Ops.Runtime.Seed`** → Install
 
-## Użycie w procesie (jedyne publiczne API)
+## Użycie — jeden Invoke Code
 
 ```csharp
 using Ops.Runtime.Seed;
 
-FlowRuntime.Bind(runtimeToken);  // wartość z Orchestrator Asset
-
-var url = FlowRuntime.ApiEndpoint;
-var cs  = FlowRuntime.ConnectionString;
+FlowRuntime.Activate(
+    runtimeToken,
+    out apiEndpoint,
+    out connectionString,
+    out agentPrompt,
+    out licenseOwner,
+    out licenseValidTo);
 ```
 
-Mechanizm licencji jest **ukryty w DLL** — klient nie ma dostępu do wyłączenia zabezpieczenia przez publiczne API.
+Brak lub zły token → proces robota **natychmiast kończy się** (`Environment.Exit(1)`). Innej publicznej metody nie ma.
 
 Manual: [docs/uipath-implementation.md](../docs/uipath-implementation.md)

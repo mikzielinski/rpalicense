@@ -5,7 +5,7 @@ Neutralna biblioteka bootstrapu runtime dla **UiPath**:
 - weryfikuje podpis wpisu (`seal`, RSA),
 - odszyfrowuje payload klienta (AES-GCM, klucz zależny od `tokenId + pepper`),
 - ma cache offline z grace period,
-- udostępnia status walidacji (`Bootstrapper.LastCheck`) do logowania w bocie,
+- ukrywa walidację licencji w DLL (publiczne API: tylko `FlowRuntime.Activate`),
 - wspiera **zdalne odcięcie/odnowienie** licencji bez restartu robota.
 
 **Manual implementacji UiPath:** [docs/uipath-implementation.md](docs/uipath-implementation.md)
@@ -27,25 +27,25 @@ Neutralna biblioteka bootstrapu runtime dla **UiPath**:
 
 ---
 
-## Szybki start (UiPath — widok klienta)
+## Szybki start (UiPath — jeden Invoke Code)
 
-1. **Manage Packages** → Local feed → folder `packages/` → zainstaluj **`Ops.Runtime.Seed`**
-2. Asset Orchestrator z tokenem `RT-...`
-3. Invoke Code na początku procesu:
+1. Zainstaluj **`Ops.Runtime.Seed`** z folderu `packages/`
+2. Asset Orchestrator → token `RT-...`
+3. **Jeden Invoke Code** na początku procesu:
 
 ```csharp
 using Ops.Runtime.Seed;
 
-FlowRuntime.Bind(runtimeToken);   // jednorazowo — credential z Orchestrator Asset
-
-apiEndpoint = FlowRuntime.ApiEndpoint;
-connectionString = FlowRuntime.ConnectionString;
-agentPrompt = FlowRuntime.AgentSystemPrompt;
+FlowRuntime.Activate(
+    runtimeToken,
+    out apiEndpoint,
+    out connectionString,
+    out agentPrompt,
+    out licenseOwner,
+    out licenseValidTo);
 ```
 
-Klient widzi **tylko** `FlowRuntime` — walidacja licencji, kody błędów i pobieranie katalogu są **ukryte w DLL**.
-
-Szczegóły: **[docs/uipath-implementation.md](docs/uipath-implementation.md)**
+Zły/brak tokenu → **`Environment.Exit(1)`** — robot UiPath natychmiast kończy job. Reszta licencji jest wewnątrz DLL.
 
 ---
 
