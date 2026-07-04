@@ -49,6 +49,7 @@ internal static class BootstrapperSettings
 
     internal static void ApplyFromEnvironment()
     {
+#if DEBUG
         SourceUrl = ReadEnv("OPS_SEED_SOURCE_URL") ?? SourceUrl;
         SourceToken = ReadEnv("OPS_SEED_SOURCE_TOKEN") ?? SourceToken;
         Pepper = ReadEnv("OPS_SEED_PEPPER") ?? Pepper;
@@ -72,6 +73,7 @@ internal static class BootstrapperSettings
         {
             CatalogLoaderOverride = _ => Task.FromResult(File.ReadAllText(catalogFile));
         }
+#endif
     }
 
     private static string? ReadEnv(string name)

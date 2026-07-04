@@ -27,7 +27,7 @@ Neutralna biblioteka bootstrapu runtime dla **UiPath**:
 
 ---
 
-## Szybki start (UiPath)
+## Szybki start (UiPath — widok klienta)
 
 1. **Manage Packages** → Local feed → folder `packages/` → zainstaluj **`Ops.Runtime.Seed`**
 2. Asset Orchestrator z tokenem `RT-...`
@@ -36,11 +36,14 @@ Neutralna biblioteka bootstrapu runtime dla **UiPath**:
 ```csharp
 using Ops.Runtime.Seed;
 
-if (!Bootstrapper.TryInitialize(runtimeToken, out var profile))
-    throw new System.Exception($"Runtime gate: {Bootstrapper.LastCheck.Code}");
+FlowRuntime.Bind(runtimeToken);   // jednorazowo — credential z Orchestrator Asset
 
-// użyj profile.ApiEndpoint, profile.ConnectionString, ...
+apiEndpoint = FlowRuntime.ApiEndpoint;
+connectionString = FlowRuntime.ConnectionString;
+agentPrompt = FlowRuntime.AgentSystemPrompt;
 ```
+
+Klient widzi **tylko** `FlowRuntime` — walidacja licencji, kody błędów i pobieranie katalogu są **ukryte w DLL**.
 
 Szczegóły: **[docs/uipath-implementation.md](docs/uipath-implementation.md)**
 

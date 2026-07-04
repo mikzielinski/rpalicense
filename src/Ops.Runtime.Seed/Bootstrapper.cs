@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Ops.Runtime.Seed;
 
-public static class Bootstrapper
+internal static class Bootstrapper
 {
     private static readonly HttpClient Http = new()
     {
@@ -394,10 +394,12 @@ public static class Bootstrapper
                 {
                     Initialize(token);
                     BootstrapperDiagnostics.ModuleInitSucceeded = true;
+                    FlowRuntime.NotifyBackgroundInit(token, succeeded: true);
                 }
                 catch (Exception ex)
                 {
                     BootstrapperDiagnostics.ModuleInitFailure = ex.ToString();
+                    FlowRuntime.NotifyBackgroundFailure(ExtractCode(ex));
                 }
             });
         }

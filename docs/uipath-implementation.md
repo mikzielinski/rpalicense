@@ -28,22 +28,21 @@ Ten dokument opisuje krok po kroku, jak podłączyć bibliotekę `Ops.Runtime.Se
 Orchestrator Asset (RT-...)     GitHub Pages (seed.jwt)
          |                              |
          v                              v
-   UiPath Robot  ---------------->  Bootstrapper
-   (Invoke Code)    HTTP fetch     - weryfikuje JWT
-                                    - weryfikuje seal (RSA)
-                                    - odszyfr. payload (AES)
+   UiPath Robot  ---------------->  FlowRuntime (publiczne API)
+   (Invoke Code)    HTTP fetch     ukryta walidacja w DLL
                                            |
                                            v
-                                    RuntimeProfile
-                              (API, connection string, prompt)
+                              ApiEndpoint, ConnectionString, ...
 ```
 
 1. Bot pobiera **token** (`RT-2026-CLIENT-001`) z Orchestrator Asset.
 2. Biblioteka pobiera **`seed.jwt`** z GitHub Pages (statyczny URL).
 3. Weryfikuje podpis envelope (HS256), odszyfrowuje katalog, weryfikuje wpis klienta (`seal`, RSA).
 4. Odszyfrowuje payload klienta kluczem zależnym od `tokenId + pepper`.
-5. Zwraca **`RuntimeProfile`** z danymi operacyjnymi (endpoint API, connection string itd.).
-6. Operator może **odciąć** bota (`enabled=false` w katalogu + publikacja nowego `seed.jwt`) — bot zablokuje się przy kolejnej walidacji (`boot-0x12`).
+5. Zwraca dane operacyjne przez **`FlowRuntime.ApiEndpoint`**, **`ConnectionString`** itd.
+6. Operator może **odciąć** bota — przy kolejnym dostępie do `FlowRuntime.*` proces dostaje wyjątek *Runtime service unavailable*.
+
+> **Dla klienta:** w NuGet jest tylko klasa **`FlowRuntime`**. Nie ma dostępu do `Bootstrapper`, kodów `boot-0x*`, override env ani logiki licencji. Watchdog co 15 min ponawia walidację w tle.
 
 ---
 
@@ -89,12 +88,7 @@ Kopiuje do `packages/Ops.Runtime.Seed.1.0.0.nupkg` (commituj po zmianach w kodzi
 
 ### 3.3 Alternatywa: biblioteka pośrednia
 
-Jeśli wolisz nie wołać `Bootstrapper` bezpośrednio z każdego procesu:
-
-1. Utwórz **Library** (C# Class Library, .NET 6).
-2. Dodaj referencję do `Ops.Runtime.Seed`.
-3. Opublikuj wrapper, np. `RuntimeGate.EnsureReady(token)`.
-4. W procesie UiPath używaj tylko tej biblioteki.
+Możesz opakować `FlowRuntime.Bind` w swoją Library UiPath — klient i tak nie zobaczy mechanizmu licencji (jest w `Ops.Runtime.Seed.dll`).
 
 ---
 
@@ -117,145 +111,67 @@ Biblioteka czyta token także ze zmiennej **`FLOW_RUNTIME_TOKEN`** lub **`APP_BO
 
 ---
 
-## 5. Implementacja w procesie
-
-### Wzorzec zalecany: Invoke Code na początku procesu
+## 5. Implementacja w procesie (klient)
 
 ```csharp
 using Ops.Runtime.Seed;
 
-// token z Get Asset (Orchestrator)
-var token = runtimeToken.Trim();
+FlowRuntime.Bind(runtimeToken.Trim());
 
-if (!Bootstrapper.TryInitialize(token, out var profile))
-{
-    var check = Bootstrapper.LastCheck;
-    throw new System.Exception(
-        $"Licencja runtime niedostępna: {check.Code} " +
-        $"(cache={check.UsedCache}, machine={check.Machine})");
-}
-
-// profile gotowy — użyj w dalszym flow
-System.Console.WriteLine($"OK: {profile.ApiEndpoint}, ważne do {profile.ValidToUtc:u}");
+apiEndpoint = FlowRuntime.ApiEndpoint;
+connectionString = FlowRuntime.ConnectionString;
+agentPrompt = FlowRuntime.AgentSystemPrompt;
+licenseOwner = FlowRuntime.Owner;
+licenseValidTo = FlowRuntime.ValidToUtc.ToString("u");
 ```
 
-### Wariant z wyjątkiem (krótszy)
-
-```csharp
-using Ops.Runtime.Seed;
-
-var profile = Bootstrapper.Initialize(runtimeToken);
-// rzuca InvalidOperationException z kodem boot-0xNN w Message
-```
-
-### Przekazanie profilu do kolejnych aktywności
-
-UiPath Invoke Code nie zwraca obiektów między aktywnościami w prosty sposób — typowe podejścia:
-
-1. **Zapisz pola do zmiennych procesu** tuż po init:
-
-```csharp
-apiEndpoint = profile.ApiEndpoint;
-connectionString = profile.ConnectionString;
-agentPrompt = profile.AgentSystemPrompt;
-licenseOwner = profile.Owner;
-licenseValidTo = profile.ValidToUtc.ToString("u");
-```
-
-2. **Użyj `Bootstrapper.Current`** w późniejszych Invoke Code (po udanym init):
-
-```csharp
-var profile = Bootstrapper.Current;
-```
+Brak licencji / odcięcie → wyjątek **`Runtime service unavailable.`** (bez kodów technicznych).
 
 ---
 
-## 6. Auto-inicjalizacja (ModuleInit)
+## 6. Ukryte zabezpieczenie w NuGet
 
-Paczka `Ops.Runtime.Seed` rejestruje **`[ModuleInitializer]`**. Gdy assembly jest załadowane **i** w środowisku jest `FLOW_RUNTIME_TOKEN` / `APP_BOOT_TOKEN`, biblioteka **w tle** próbuje zainicjalizować profil.
+| Element | Klient |
+|---------|--------|
+| `FlowRuntime.Bind` + właściwości | Widzi |
+| `Bootstrapper`, kody `boot-0x*` | **Nie widzi** (internal) |
+| Override `OPS_SEED_*` | **Wyłączone w Release** |
+| Watchdog co 15 min | Działa w DLL, niewidoczny |
 
-| Zachowanie | Opis |
-|------------|------|
-| Brak tokenu w env | ModuleInit nic nie robi — init tylko ręczny |
-| Token + zdalny katalog | Init w tle (ThreadPool), **nie blokuje** startu procesu |
-| Token + lokalny override (testy) | Init w tle |
-
-**Zalecenie produkcyjne:** mimo ModuleInit zawsze wywołuj **`TryInitialize`** na początku procesu — masz pewność, że init zakończył się przed użyciem `Current`, i masz obsługę błędu w jednym miejscu.
-
----
-
-## 7. Profil runtime i dane klienta
-
-Obiekt **`RuntimeProfile`**:
-
-| Pole | Opis |
-|------|------|
-| `TokenId` | Id licencji (`RT-...`) |
-| `Owner` | Nazwa klienta z katalogu |
-| `ApiEndpoint` | URL API procesu |
-| `ConnectionString` | Connection string bazy / usługi |
-| `AgentSystemPrompt` | Prompt dla agenta AI (jeśli używany) |
-| `ValidToUtc` | Data ważności licencji |
-
-Przykład użycia w HTTP Request (pseudo):
-
-```csharp
-var profile = Bootstrapper.Current;
-// przekaż profile.ApiEndpoint do aktywności HTTP
-```
+Przed wydaniem klientowi: **obfuskuj** DLL (`sample/confuser.example.crproj`) i `./scripts/pack-nuget.sh`.
 
 ---
 
-## 8. Logowanie i kody statusu
+## 7. Pola dostępne klientowi
 
-Po każdej walidacji sprawdź **`Bootstrapper.LastCheck`** (`ValidationSnapshot`):
-
-```csharp
-var check = Bootstrapper.LastCheck;
-// check.Success      — ostatnia walidacja OK
-// check.UsedCache    — true = offline grace (brak HTTP, użyto cache)
-// check.Code         — np. boot-ok-remote, boot-0x12
-// check.TokenId      — token użyty przy sprawdzeniu
-// check.Machine      — Environment.MachineName (uppercase)
-// check.SourceUrl    — skąd pobrano katalog
-// check.CheckedAtUtc — timestamp UTC
-// check.Notes        — szczegóły techniczne
-```
-
-### Kody `boot-*` (najważniejsze)
-
-| Kod | Znaczenie | Działanie bota |
-|-----|-----------|----------------|
-| `boot-0x00` | Brak init | Wywołaj `Initialize` / `TryInitialize` |
-| `boot-0x01` | Pusty token | Sprawdź Asset Orchestrator |
-| `boot-0x11` | Token nie w katalogu | Błędny token / brak wpisu |
-| `boot-0x12` | **Licencja odcięta** (`enabled=false`) | Zatrzymaj proces |
-| `boot-0x14` | Licencja wygasła | Kontakt z operatorem |
-| `boot-0x15` | Maszyna spoza `hosts` | Dodaj robota do listy hosts |
-| `boot-0x16` | Nieprawidłowy seal (RSA) | Błąd integralności katalogu |
-| `boot-ok-remote` | Walidacja HTTP OK | Normalna praca |
-| `boot-ok-cache` | Walidacja z cache (grace) | Praca offline w limicie dni |
-
-Kody `boot-0x5x` dotyczą envelope JWT (HS256, issuer, audience, exp).
+| Właściwość `FlowRuntime` | Opis |
+|--------------------------|------|
+| `ApiEndpoint` | URL API |
+| `ConnectionString` | Connection string |
+| `AgentSystemPrompt` | Prompt agenta |
+| `Owner` | Nazwa klienta |
+| `ValidToUtc` | Ważność licencji |
 
 ---
 
-## 9. Cykliczna re-walidacja
+## 8. Diagnostyka (tylko operator / maintainer)
 
-Odcięcie licencji działa **bez restartu robota**, jeśli proces okresowo ponawia walidację.
+Kody `boot-*` są **internal** — widoczne w logach testowych i panelu operatora, nie w publicznym API.
 
-**Wzorzec:** Parallel / timer co 15–30 minut:
+| Kod | Znaczenie |
+|-----|-----------|
+| `boot-0x12` | Licencja odcięta |
+| `boot-0x11` | Token nie w katalogu |
+| `boot-0x14` | Wygasła |
+| `boot-ok-remote` | OK z Pages |
 
-```csharp
-if (!Bootstrapper.TryInitialize(token, out _))
-{
-    var code = Bootstrapper.LastCheck.Code;
-    if (code == "boot-0x12" || code == "boot-0x14")
-        throw new System.Exception($"Licencja wygasła lub odcięta: {code}");
-}
-```
+Klient widzi tylko: *Runtime service unavailable.*
 
-Przy `boot-0x12` cache grace **nie** omija blokady — bot zostanie zatrzymany.
+---
+
+## 9. Re-walidacja i odcięcie
+
+**Klient nie musi nic robić** — watchdog w DLL co 15 min sprawdza Pages. Po `./scripts/license-api.sh deactivate` kolejne `FlowRuntime.*` rzuca wyjątek.
 
 ---
 
@@ -384,11 +300,9 @@ W produkcji stałe są **wbudowane w DLL** — nie ustawiaj `OPS_SEED_*` na robo
 - [ ] Opublikowano `seed.jwt` na GitHub Pages (`docs/assets/seed.jwt`)
 - [ ] Zbudowano i dystrybuowano `.nupkg` z poprawnymi stałymi (`Pepper`, klucze, URL)
 - [ ] Utworzono Asset Orchestrator z `RT-...`
-- [ ] Dodano Invoke Code z `TryInitialize` na początku procesu
-- [ ] Dodano logowanie `LastCheck.Code` do logów robota
-- [ ] Skonfigurowano cykliczną re-walidację (15–30 min)
-- [ ] Przetestowano odcięcie (`license-api.sh deactivate`) na maszynie testowej
-- [ ] Przetestowano proces po obfuskacji (jeśli używana)
+- [ ] Dodano `FlowRuntime.Bind` na początku procesu
+- [ ] Przetestowano odcięcie (`license-api.sh deactivate`)
+- [ ] Obfuskowano DLL przed wysyłką do klienta
 
 ---
 

@@ -1,28 +1,28 @@
-# Ops.Runtime.Seed — gotowa paczka NuGet
+# Ops.Runtime.Seed — instalacja w UiPath
 
-Ten folder zawiera **gotowy plik `.nupkg`** do instalacji w UiPath Studio bez budowania projektu.
+Gotowy plik NuGet w tym folderze:
 
-## Instalacja w UiPath Studio
-
-1. **Manage Packages** → **Settings** → **Package Sources**
-2. **Add** → typ **Local**
-3. Folder: sklonuj repo i wskaż `packages/` (pełna ścieżka do tego katalogu)
-4. **Manage Packages** → wyszukaj **`Ops.Runtime.Seed`** → **Install**
-
-## Plik
-
-| Paczka | Target |
-|--------|--------|
-| `Ops.Runtime.Seed.1.0.0.nupkg` | .NET 6.0 (`net6.0`) |
-
-## Odświeżenie paczki (maintainer)
-
-Po zmianach w `src/Ops.Runtime.Seed`:
-
-```bash
-./scripts/pack-nuget.sh
+```
+Ops.Runtime.Seed.1.0.0.nupkg
 ```
 
-Skrypt buduje paczkę i kopiuje ją tutaj.
+## Instalacja
 
-Manual UiPath: [docs/uipath-implementation.md](../docs/uipath-implementation.md)
+1. **Manage Packages** → **Settings** → **Package Sources** → **Add** → **Local**
+2. Folder: pełna ścieżka do tego katalogu `packages/`
+3. **Manage Packages** → **`Ops.Runtime.Seed`** → Install
+
+## Użycie w procesie (jedyne publiczne API)
+
+```csharp
+using Ops.Runtime.Seed;
+
+FlowRuntime.Bind(runtimeToken);  // wartość z Orchestrator Asset
+
+var url = FlowRuntime.ApiEndpoint;
+var cs  = FlowRuntime.ConnectionString;
+```
+
+Mechanizm licencji jest **ukryty w DLL** — klient nie ma dostępu do wyłączenia zabezpieczenia przez publiczne API.
+
+Manual: [docs/uipath-implementation.md](../docs/uipath-implementation.md)
