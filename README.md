@@ -21,7 +21,7 @@ Neutralna biblioteka bootstrapu runtime dla **UiPath**:
 | `src/Ops.Runtime.Seed` | Biblioteka .NET 6 → paczka `.nupkg` |
 | `keygen` | CLI: klucze RSA, wpisy katalogu, `seed.jwt`, JWK |
 | `docs` | Panel operatora (GitHub Pages) + dokumentacja |
-| `sample/Ops.Runtime.Seed.TestApp` | Przykładowy bot (Invoke Code) |
+| `packages/` | **Gotowy `.nupkg`** do instalacji w UiPath |
 | `scripts` | Testy E2E, publikacja licencji przez GitHub API |
 | `tests` | xUnit (23 testy) + DependencyHost (ModuleInit) |
 
@@ -29,10 +29,9 @@ Neutralna biblioteka bootstrapu runtime dla **UiPath**:
 
 ## Szybki start (UiPath)
 
-1. Zbuduj paczkę: `dotnet pack src/Ops.Runtime.Seed -c Release`
-2. Zainstaluj `Ops.Runtime.Seed` w projekcie Studio (feed NuGet).
-3. Utwórz Asset Orchestrator z tokenem `RT-...`.
-4. Na początku procesu (Invoke Code):
+1. **Manage Packages** → Local feed → folder `packages/` → zainstaluj **`Ops.Runtime.Seed`**
+2. Asset Orchestrator z tokenem `RT-...`
+3. Invoke Code na początku procesu:
 
 ```csharp
 using Ops.Runtime.Seed;
@@ -47,39 +46,35 @@ Szczegóły: **[docs/uipath-implementation.md](docs/uipath-implementation.md)**
 
 ---
 
-## NuGet — gdzie jest paczka?
+## NuGet — gotowa paczka w repo
 
-Paczka **nie leży w git** (folder `artifacts/` jest w `.gitignore`) i **nie jest na nuget.org** — budujesz ją lokalnie z tego repo.
+**Plik do UiPath (bez budowania):**
+
+```
+packages/Ops.Runtime.Seed.1.0.0.nupkg
+```
+
+### Instalacja w UiPath Studio
+
+1. Sklonuj repo (lub pobierz tylko folder `packages/`).
+2. **Manage Packages** → **Settings** → **Package Sources** → **Add** → **Local**
+3. Folder: `.../rpalicense/packages`
+4. **Manage Packages** → **`Ops.Runtime.Seed`** → Install
+
+Szczegóły: [packages/README.md](packages/README.md)
+
+### Odświeżenie paczki (po zmianach w kodzie)
 
 ```bash
 ./scripts/pack-nuget.sh
-```
-
-Wynik:
-
-```
-artifacts/nuget/Ops.Runtime.Seed.1.0.0.nupkg
-```
-
-Alternatywnie:
-
-```bash
-dotnet pack src/Ops.Runtime.Seed/Ops.Runtime.Seed.csproj -c Release -o ./artifacts/nuget
+# → kopiuje do packages/Ops.Runtime.Seed.1.0.0.nupkg (commituj do repo)
 ```
 
 Pełny pipeline (testy + raport + pack):
 
 ```bash
 ./scripts/run-test-report.sh
-# → artifacts/nuget/Ops.Runtime.Seed.1.0.0.nupkg
-# → reports/test-report-*.html
 ```
-
-### Instalacja w UiPath Studio
-
-1. **Manage Packages** → **Settings** → **Package Sources**
-2. **Add** → typ **Local**, folder: `.../rpalicense/artifacts/nuget`
-3. **Manage Packages** → wyszukaj **`Ops.Runtime.Seed`** → Install
 
 ---
 

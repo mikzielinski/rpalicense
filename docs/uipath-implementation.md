@@ -63,23 +63,23 @@ Token klienta **nie jest** sekretem kryptograficznym — to identyfikator licenc
 
 ## 3. Instalacja paczki
 
-### 3.1 Zbuduj NuGet lokalnie
+### 3.1 Gotowa paczka w repo (zalecane)
+
+W repozytorium jest już zbudowany plik:
+
+```
+packages/Ops.Runtime.Seed.1.0.0.nupkg
+```
+
+UiPath Studio → **Manage Packages** → **Settings** → Local → folder **`packages/`**.
+
+### 3.2 Zbuduj NuGet lokalnie (maintainer)
 
 ```bash
 ./scripts/pack-nuget.sh
 ```
 
-Wynik (nie ma tego pliku w git — trzeba zbudować):
-
-```
-artifacts/nuget/Ops.Runtime.Seed.1.0.0.nupkg
-```
-
-Domyślnie `dotnet pack` bez `-o` zapisuje też do:
-
-```
-src/Ops.Runtime.Seed/bin/Release/Ops.Runtime.Seed.1.0.0.nupkg
-```
+Kopiuje do `packages/Ops.Runtime.Seed.1.0.0.nupkg` (commituj po zmianach w kodzie).
 
 ### 3.2 Dodaj feed w UiPath Studio
 
