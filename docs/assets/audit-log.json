@@ -1,22 +1,22 @@
 {
   "entries": [
     {
-      "atUtc": "2026-07-04T19:03:23.728Z",
+      "atUtc": "2026-07-04T19:05:28.733Z",
       "who": "mikolaj",
       "action": "publish",
       "tokenId": "-",
       "code": "ok",
       "success": true,
-      "notes": "seed.jwt → commit 0c8f55e"
+      "notes": "seed.jwt → commit 0831cba"
     },
     {
-      "atUtc": "2026-07-04T19:03:22.573Z",
+      "atUtc": "2026-07-04T19:05:27.415Z",
       "who": "mikolaj",
       "action": "renew",
       "tokenId": "RT-2026-Qiagen-69",
       "code": "ok",
       "success": true,
-      "notes": "Przedłużono do 2027-07-04T19:03:22.573Z"
+      "notes": "Przedłużono do 2027-07-04T19:05:27.415Z"
     },
     {
       "atUtc": "2026-07-04T19:00:59.986Z",
