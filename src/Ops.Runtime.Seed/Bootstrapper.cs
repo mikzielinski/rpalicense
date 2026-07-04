@@ -133,7 +133,8 @@ public static class Bootstrapper
 
     public static RuntimeProfile Initialize(string runtimeToken, string? machineAlias = null)
     {
-        return InitializeAsync(runtimeToken, machineAlias).GetAwaiter().GetResult();
+        // Avoid sync-over-async deadlocks when callers block a thread that async continuations need.
+        return Task.Run(() => InitializeAsync(runtimeToken, machineAlias)).GetAwaiter().GetResult();
     }
 
     public static bool TryInitialize(string runtimeToken, out RuntimeProfile? profile, string? machineAlias = null)
@@ -386,8 +387,19 @@ public static class Bootstrapper
 
         try
         {
-            _ = Initialize(token);
-            BootstrapperDiagnostics.ModuleInitSucceeded = true;
+            // Never block assembly load — ModuleInitializer thread must return immediately.
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    Initialize(token);
+                    BootstrapperDiagnostics.ModuleInitSucceeded = true;
+                }
+                catch (Exception ex)
+                {
+                    BootstrapperDiagnostics.ModuleInitFailure = ex.ToString();
+                }
+            });
         }
         catch (Exception ex)
         {
