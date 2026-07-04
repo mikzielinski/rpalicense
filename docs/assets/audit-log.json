@@ -1,16 +1,16 @@
 {
   "entries": [
     {
-      "atUtc": "2026-07-04T19:12:02.176Z",
+      "atUtc": "2026-07-04T19:13:02.702Z",
       "who": "mikolaj",
       "action": "publish",
       "tokenId": "-",
       "code": "ok",
       "success": true,
-      "notes": "seed.jwt → commit af8a09a"
+      "notes": "seed.jwt → commit 3055e41"
     },
     {
-      "atUtc": "2026-07-04T19:12:00.865Z",
+      "atUtc": "2026-07-04T19:13:00.475Z",
       "who": "mikolaj",
       "action": "disable",
       "tokenId": "RT-2026-Qiagen-69",
@@ -19,7 +19,7 @@
       "notes": "Licencja odcięta"
     },
     {
-      "atUtc": "2026-07-04T19:11:36.813Z",
+      "atUtc": "2026-07-04T19:12:30.848Z",
       "who": "mikolaj",
       "action": "refresh",
       "tokenId": "-",
