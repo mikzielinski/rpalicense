@@ -1,6 +1,33 @@
 {
   "entries": [
     {
+      "atUtc": "2026-07-04T19:14:33.837Z",
+      "who": "mikolaj",
+      "action": "publish",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "seed.jwt → commit f7e0577"
+    },
+    {
+      "atUtc": "2026-07-04T19:14:32.600Z",
+      "who": "mikolaj",
+      "action": "renew",
+      "tokenId": "RT-2026-Qiagen-69",
+      "code": "ok",
+      "success": true,
+      "notes": "Przedłużono do 2027-07-04T19:14:32.600Z"
+    },
+    {
+      "atUtc": "2026-07-04T19:13:58.168Z",
+      "who": "mikolaj",
+      "action": "refresh",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "Odświeżono katalog z serwera"
+    },
+    {
       "atUtc": "2026-07-04T19:13:02.702Z",
       "who": "mikolaj",
       "action": "publish",
