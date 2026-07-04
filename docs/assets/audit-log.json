@@ -1,31 +1,22 @@
 {
   "entries": [
     {
-      "atUtc": "2026-07-04T19:36:57.278Z",
+      "atUtc": "2026-07-04T19:37:16.985Z",
       "who": "mikolaj",
       "action": "publish",
       "tokenId": "-",
       "code": "ok",
       "success": true,
-      "notes": "seed.jwt → commit 86d4608"
+      "notes": "seed.jwt → commit e6b1782"
     },
     {
-      "atUtc": "2026-07-04T19:36:57.275Z",
+      "atUtc": "2026-07-04T19:37:16.982Z",
       "who": "mikolaj",
       "action": "disable",
       "tokenId": "RT-2026-Qiagen-69",
       "code": "ok",
       "success": true,
       "notes": "Licencja odcięta"
-    },
-    {
-      "atUtc": "2026-07-04T19:36:23.845Z",
-      "who": "mikolaj",
-      "action": "refresh",
-      "tokenId": "-",
-      "code": "ok",
-      "success": true,
-      "notes": "Odświeżono katalog z Pages"
     },
     {
       "atUtc": "2026-07-04T19:14:33.837Z",
