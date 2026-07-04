@@ -1,3 +1,31 @@
 {
-  "entries": []
+  "entries": [
+    {
+      "atUtc": "2026-07-04T18:59:50.234Z",
+      "who": "mikolaj",
+      "action": "publish",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "Opublikowano seed.jwt (2 wpisów)"
+    },
+    {
+      "atUtc": "2026-07-04T18:59:48.697Z",
+      "who": "mikolaj",
+      "action": "disable",
+      "tokenId": "RT-2026-Qiagen-69",
+      "code": "ok",
+      "success": true,
+      "notes": "Licencja odcięta"
+    },
+    {
+      "atUtc": "2026-07-04T18:59:43.055Z",
+      "who": "mikolaj",
+      "action": "refresh",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "Odświeżono katalog z serwera"
+    }
+  ]
 }
