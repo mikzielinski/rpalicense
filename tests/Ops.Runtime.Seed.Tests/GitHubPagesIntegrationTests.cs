@@ -2,6 +2,7 @@ using Ops.Runtime.Seed;
 
 namespace Ops.Runtime.Seed.Tests;
 
+[Collection("GitHubPages")]
 public sealed class GitHubPagesIntegrationTests : IDisposable
 {
     private readonly FixtureManifest _manifest = TestFixture.LoadManifest();
@@ -21,7 +22,7 @@ public sealed class GitHubPagesIntegrationTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(url));
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        var body = await WaitForPagesJwtAsync(http, url).ConfigureAwait(false);
+        var body = await WaitForPagesJwtAsync(http, url);
 
         Assert.StartsWith("eyJ", body.Trim());
         Assert.Contains(".", body);
@@ -35,7 +36,7 @@ public sealed class GitHubPagesIntegrationTests : IDisposable
         BootstrapperSettings.CachePathOverride = Path.Combine(_cacheDir, "seed.cache.json");
         BootstrapperSettings.CatalogLoaderOverride = null;
 
-        var profile = await Bootstrapper.InitializeAsync(_manifest.TokenId).ConfigureAwait(false);
+        var profile = await Bootstrapper.InitializeAsync(_manifest.TokenId);
 
         Assert.Equal("boot-ok-remote", Bootstrapper.LastCheck.Code);
         Assert.True(Bootstrapper.LastCheck.Success);
@@ -52,50 +53,14 @@ public sealed class GitHubPagesIntegrationTests : IDisposable
         var url = _manifest.SourceUrl;
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        var remote = (await WaitForPagesJwtAsync(http, url).ConfigureAwait(false)).Trim();
+        var remote = (await WaitForPagesJwtAsync(http, url)).Trim();
 
-        var keygen = Path.GetFullPath(Path.Combine(FindFixturesRoot(), "..", "keygen", "SeedForge.csproj"));
-        var remoteCatalog = RunKeygenUnwrap(keygen, remote);
+        var remoteCatalog = GitHubPagesTestHelpers.UnwrapJwt(remote);
         using var doc = JsonDocument.Parse(remoteCatalog);
         var tokenId = doc.RootElement.GetProperty("entries")[0].GetProperty("tokenId").GetString();
 
         Assert.Equal(_manifest.TokenId, tokenId);
         Assert.True(doc.RootElement.GetProperty("entries")[0].GetProperty("enabled").GetBoolean());
-    }
-
-    private static string RunKeygenUnwrap(string keygenProject, string jwt)
-    {
-        var jwtFile = Path.Combine(Path.GetTempPath(), $"unwrap-{Guid.NewGuid():N}.jwt");
-        File.WriteAllText(jwtFile, jwt);
-        try
-        {
-            using var proc = Process.Start(new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments =
-                    $"run --project \"{keygenProject}\" -c Release --no-build -- unwrapjwt \"{jwtFile}\" " +
-                    "\"test-jwt-signing-key-ops-runtime-seed-2026\" " +
-                    "\"test-envelope-pepper-ops-runtime-2026\" " +
-                    "\"https://mikzielinski.github.io/rpalicense\" " +
-                    "\"ops-runtime-seed\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            })!;
-            var stdout = proc.StandardOutput.ReadToEnd();
-            var stderr = proc.StandardError.ReadToEnd();
-            proc.WaitForExit();
-            if (proc.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"unwrapjwt failed: {stderr}");
-            }
-
-            return stdout.Trim();
-        }
-        finally
-        {
-            try { File.Delete(jwtFile); } catch { /* ignore */ }
-        }
     }
 
     private static async Task<string> WaitForPagesJwtAsync(HttpClient http, string url)
@@ -105,10 +70,10 @@ public sealed class GitHubPagesIntegrationTests : IDisposable
         {
             try
             {
-                using var response = await http.GetAsync(url).ConfigureAwait(false);
+                using var response = await http.GetAsync(url);
                 if (response.IsSuccessStatusCode)
                 {
-                    return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    return await response.Content.ReadAsStringAsync();
                 }
 
                 last = new HttpRequestException($"HTTP {(int)response.StatusCode} from {url}");
@@ -120,28 +85,11 @@ public sealed class GitHubPagesIntegrationTests : IDisposable
 
             if (attempt < 12)
             {
-                await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(5));
             }
         }
 
         throw new InvalidOperationException(
             $"GitHub Pages seed.jwt not available at {url} after retries. Last error: {last?.Message}");
-    }
-
-    private static string FindFixturesRoot()
-    {
-        var dir = AppContext.BaseDirectory;
-        for (var i = 0; i < 8; i++)
-        {
-            var candidate = Path.GetFullPath(Path.Combine(dir, "test-fixtures"));
-            if (Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            dir = Path.Combine(dir, "..");
-        }
-
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "test-fixtures"));
     }
 }

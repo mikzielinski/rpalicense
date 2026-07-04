@@ -41,6 +41,8 @@ dotnet pack "$ROOT/src/Ops.Runtime.Seed/Ops.Runtime.Seed.csproj" \
   -o "$NUPKG_DIR"
 
 NUPKG=$(ls -1 "$NUPKG_DIR"/*.nupkg | tail -1)
+mkdir -p "$ROOT/packages"
+cp "$NUPKG" "$ROOT/packages/"
 
 echo ""
 echo "==> Step 5: Generate HTML report"
