@@ -259,6 +259,45 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.stat-chip {
+  background: #131a27;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.stat-chip strong {
+  display: block;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.stat-chip.ok strong {
+  color: var(--good);
+}
+
+.stat-chip.bad strong {
+  color: var(--bad);
+}
+
+.robot-filters {
+  margin-bottom: 12px;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  color: var(--accent);
+}
+
 @media (max-width: 700px) {
   .header-row {
     flex-direction: column;

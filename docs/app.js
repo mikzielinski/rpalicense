@@ -5,6 +5,8 @@ const LS_KEY = "ops-runtime-panel-v2";
 let catalog = { entries: [] };
 /** @type {object[]} */
 let auditLog = [];
+/** @type {object[]} */
+let robotEvents = [];
 
 const state = {
   settings: {},
@@ -41,6 +43,7 @@ function defaultSettings() {
     ghBranch: state.defaults.ghBranch ?? "main",
     ghSeedPath: state.defaults.ghSeedPath ?? "docs/assets/seed.jwt",
     ghAuditPath: state.defaults.ghAuditPath ?? "docs/assets/audit-log.json",
+    ghRobotEventsPath: state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
     seedUrl: state.defaults.seedUrl ?? "",
     pepper: "test-pepper-ops-runtime-seed-2026",
     envelopePepper: "test-envelope-pepper-ops-runtime-2026",
@@ -72,6 +75,7 @@ function saveSettingsFromForm() {
     ghBranch: byId("cfgGhBranch").value.trim() || "main",
     ghSeedPath: previous.ghSeedPath ?? state.defaults.ghSeedPath ?? "docs/assets/seed.jwt",
     ghAuditPath: previous.ghAuditPath ?? state.defaults.ghAuditPath ?? "docs/assets/audit-log.json",
+    ghRobotEventsPath: previous.ghRobotEventsPath ?? state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
     seedUrl: byId("cfgSeedUrl").value.trim(),
     ghToken: tokenInput || previous.ghToken || "",
     pepper: byId("cfgPepper").value,
@@ -116,6 +120,10 @@ function bindUi() {
     auditLog = [];
     renderAuditTable();
   });
+  for (const id of ["robotFilterToken", "robotFilterCode", "robotFilterResult"]) {
+    byId(id).addEventListener("input", renderRobotEventsTable);
+    byId(id).addEventListener("change", renderRobotEventsTable);
+  }
 }
 
 function setDefaultDates() {
@@ -164,6 +172,7 @@ async function refreshCatalogFromPages() {
   state.liveLoadedAt = new Date();
   state.dirty = false;
   await loadAuditLogFromServer();
+  await loadRobotEventsFromServer();
 }
 
 async function refreshFromLive(manual = false) {
@@ -210,6 +219,24 @@ function auditLogPublicUrl() {
   const seed = state.settings.seedUrl;
   if (!seed) return null;
   return seed.replace(/seed\.jwt(\?.*)?$/, "audit-log.json");
+}
+
+function robotEventsPublicUrl() {
+  const seed = state.settings.seedUrl;
+  if (!seed) return null;
+  return seed.replace(/seed\.jwt(\?.*)?$/, "robot-events.json");
+}
+
+async function loadRobotEventsFromServer() {
+  const url = robotEventsPublicUrl();
+  if (!url) return;
+  try {
+    const raw = await fetchText(url);
+    const parsed = JSON.parse(raw);
+    robotEvents = Array.isArray(parsed.entries) ? parsed.entries : [];
+  } catch {
+    robotEvents = robotEvents.length ? robotEvents : [];
+  }
 }
 
 async function publishAll(options = {}) {
@@ -794,6 +821,7 @@ async function syncCatalogFromGitHubApi() {
   state.liveLoadedAt = new Date();
   state.dirty = false;
   await loadAuditLogFromServer();
+  await loadRobotEventsFromServer();
   return catalog;
 }
 
@@ -964,6 +992,97 @@ function actionBtn(label, onClick) {
   return b;
 }
 
+function robotCodeLabel(code) {
+  const labels = {
+    "boot-ok-remote": "OK (serwer)",
+    "boot-ok-cache": "OK (cache)",
+    "boot-0x11": "Nieznany token",
+    "boot-0x12": "Odcięta",
+    "boot-0x14": "Wygasła",
+    "boot-0x15": "Zła maszyna",
+    "boot-0x16": "Zły podpis",
+    "boot-0xFF": "Błąd ogólny"
+  };
+  return labels[code] ?? code;
+}
+
+function filterRobotEvents() {
+  const tokenQ = byId("robotFilterToken").value.trim().toLowerCase();
+  const codeQ = byId("robotFilterCode").value.trim().toLowerCase();
+  const resultQ = byId("robotFilterResult").value;
+
+  return robotEvents.filter((row) => {
+    if (tokenQ && !String(row.tokenId ?? "").toLowerCase().includes(tokenQ)) return false;
+    if (codeQ && !String(row.code ?? "").toLowerCase().includes(codeQ)) return false;
+    if (resultQ === "ok" && !row.success) return false;
+    if (resultQ === "fail" && row.success) return false;
+    return true;
+  });
+}
+
+function renderRobotEventsStats() {
+  const el = byId("robotEventsStats");
+  if (!el) return;
+
+  const now = Date.now();
+  const dayAgo = now - 24 * 60 * 60 * 1000;
+  const last24h = robotEvents.filter((e) => {
+    const t = Date.parse(e.atUtc ?? "");
+    return Number.isFinite(t) && t >= dayAgo;
+  });
+  const okCount = robotEvents.filter((e) => e.success).length;
+  const failCount = robotEvents.length - okCount;
+  const cacheCount = robotEvents.filter((e) => e.usedCache).length;
+
+  el.innerHTML = `
+    <div class="stat-chip"><span>Ostatnie 24h</span><strong>${last24h.length}</strong></div>
+    <div class="stat-chip ok"><span>Udane</span><strong>${okCount}</strong></div>
+    <div class="stat-chip bad"><span>Odrzucone</span><strong>${failCount}</strong></div>
+    <div class="stat-chip"><span>Z cache</span><strong>${cacheCount}</strong></div>
+  `;
+}
+
+function renderRobotEventsTable() {
+  const tbody = byId("robotEventsTableBody");
+  const countEl = byId("robotEventsCount");
+  if (!tbody) return;
+
+  const rows = filterRobotEvents().slice(0, 150);
+  if (countEl) countEl.textContent = String(robotEvents.length);
+
+  tbody.innerHTML = "";
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    const resultCls = row.success ? "ok" : "bad";
+    const resultLabel = row.success ? "OK" : "Błąd";
+    tr.innerHTML = `
+      <td>${escapeHtml(formatUtcShort(row.atUtc))}</td>
+      <td><code>${escapeHtml(row.tokenId ?? "-")}</code></td>
+      <td>${escapeHtml(row.machine ?? "-")}</td>
+      <td><span class="pill ${resultCls}" title="${escapeHtml(row.code ?? "")}">${escapeHtml(robotCodeLabel(row.code))}</span></td>
+      <td><span class="pill ${resultCls}">${resultLabel}</span></td>
+      <td>${row.usedCache ? "tak" : "nie"}</td>
+      <td>${escapeHtml(row.processName ?? "-")}</td>
+      <td>${escapeHtml(row.windowsIdentity ?? "-")}</td>
+      <td>${escapeHtml(row.notes ?? "")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="9" class="muted">Brak zdarzeń — włącz telemetrię na robotach (OPS_SEED_TELEMETRY=1).</td></tr>`;
+  }
+
+  renderRobotEventsStats();
+}
+
+function formatUtcShort(value) {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return String(value);
+  return d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
+}
+
 function renderAuditTable() {
   const tbody = byId("auditTableBody");
   tbody.innerHTML = "";
@@ -986,6 +1105,7 @@ function renderAuditTable() {
 
 function renderAll() {
   renderLicenseTable();
+  renderRobotEventsTable();
   renderAuditTable();
   byId("catalogRaw").value = JSON.stringify(catalog, null, 2);
   if (state.dirty) {

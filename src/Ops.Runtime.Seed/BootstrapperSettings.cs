@@ -29,6 +29,12 @@ internal static class BootstrapperSettings
     internal static string PublicSealKeyPem { get; set; } = ProductionPublicSealKeyPem;
     internal static int GraceDays { get; set; } = 7;
     internal static bool KillOnDeny { get; set; }
+    internal static bool TelemetryEnabled { get; set; }
+    internal static string? TelemetryGitHubToken { get; set; }
+    internal static string TelemetryGitHubOwner { get; set; } = "mikzielinski";
+    internal static string TelemetryGitHubRepo { get; set; } = "rpalicense";
+    internal static string TelemetryGitHubBranch { get; set; } = "main";
+    internal static string TelemetryEventsPath { get; set; } = "docs/assets/robot-events.json";
     internal static string? CachePathOverride { get; set; }
     internal static Func<string, Task<string>>? CatalogLoaderOverride { get; set; }
 
@@ -45,6 +51,12 @@ internal static class BootstrapperSettings
         PublicSealKeyPem = ProductionPublicSealKeyPem;
         GraceDays = 7;
         KillOnDeny = false;
+        TelemetryEnabled = false;
+        TelemetryGitHubToken = null;
+        TelemetryGitHubOwner = "mikzielinski";
+        TelemetryGitHubRepo = "rpalicense";
+        TelemetryGitHubBranch = "main";
+        TelemetryEventsPath = "docs/assets/robot-events.json";
         CachePathOverride = null;
         CatalogLoaderOverride = null;
     }
@@ -85,6 +97,18 @@ internal static class BootstrapperSettings
         {
             CatalogLoaderOverride = _ => Task.FromResult(File.ReadAllText(catalogFile));
         }
+
+        var telemetryEnv = ReadEnv("OPS_SEED_TELEMETRY");
+        if (telemetryEnv is not null)
+        {
+            TelemetryEnabled = telemetryEnv is "1" or "true" or "TRUE" or "yes" or "YES";
+        }
+
+        TelemetryGitHubToken = ReadEnv("OPS_SEED_TELEMETRY_TOKEN") ?? ReadEnv("OPS_SEED_GITHUB_TOKEN");
+        TelemetryGitHubOwner = ReadEnv("OPS_SEED_TELEMETRY_OWNER") ?? TelemetryGitHubOwner;
+        TelemetryGitHubRepo = ReadEnv("OPS_SEED_TELEMETRY_REPO") ?? TelemetryGitHubRepo;
+        TelemetryGitHubBranch = ReadEnv("OPS_SEED_TELEMETRY_BRANCH") ?? TelemetryGitHubBranch;
+        TelemetryEventsPath = ReadEnv("OPS_SEED_TELEMETRY_PATH") ?? TelemetryEventsPath;
     }
 
     private static string? ReadEnv(string name)

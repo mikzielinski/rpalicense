@@ -87,14 +87,15 @@ public static class Bootstrapper
             lock (Gate)
             {
                 _current = profile;
-                _lastCheck = NewSnapshot(
-                    success: true,
-                    usedCache: false,
-                    tokenId: runtimeToken,
-                    machine: machine,
-                    code: "boot-ok-remote",
-                    notes: "remote-validated");
             }
+
+            SetLastCheck(NewSnapshot(
+                success: true,
+                usedCache: false,
+                tokenId: runtimeToken,
+                machine: machine,
+                code: "boot-ok-remote",
+                notes: "remote-validated"));
 
             return profile;
         }
@@ -103,14 +104,15 @@ public static class Bootstrapper
             lock (Gate)
             {
                 _current = cached;
-                _lastCheck = NewSnapshot(
-                    success: true,
-                    usedCache: true,
-                    tokenId: runtimeToken,
-                    machine: machine,
-                    code: "boot-ok-cache",
-                    notes: $"cache-fallback-after:{ExtractCode(ex)}");
             }
+
+            SetLastCheck(NewSnapshot(
+                success: true,
+                usedCache: true,
+                tokenId: runtimeToken,
+                machine: machine,
+                code: "boot-ok-cache",
+                notes: $"cache-fallback-after:{ExtractCode(ex)}"));
 
             return cached;
         }
@@ -132,14 +134,15 @@ public static class Bootstrapper
                     }
                 }
 
-                _lastCheck = NewSnapshot(
-                    success: false,
-                    usedCache: false,
-                    tokenId: runtimeToken,
-                    machine: machine,
-                    code: code,
-                    notes: "validation-failed");
             }
+
+            SetLastCheck(NewSnapshot(
+                success: false,
+                usedCache: false,
+                tokenId: runtimeToken,
+                machine: machine,
+                code: code,
+                notes: "validation-failed"));
 
             if (IsPolicyDenial(code))
             {
@@ -481,6 +484,16 @@ public static class Bootstrapper
             "boot-0x11" or "boot-0x12" or "boot-0x14" or "boot-0x15" or "boot-0x16"
             or "boot-0x52" or "boot-0x53" or "boot-0x54" or "boot-0x55" or "boot-0x56"
             or "boot-0x57" or "boot-0x58" or "boot-0x59" or "boot-0x5A");
+    }
+
+    private static void SetLastCheck(ValidationSnapshot snapshot)
+    {
+        lock (Gate)
+        {
+            _lastCheck = snapshot;
+        }
+
+        TelemetryReporter.TryReport(snapshot);
     }
 
     private static ValidationSnapshot NewSnapshot(

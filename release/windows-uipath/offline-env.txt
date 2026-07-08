@@ -11,3 +11,11 @@ OPS_SEED_ENVELOPE_SIGNING_KEY=test-jwt-signing-key-ops-runtime-seed-2026
 
 # Produkcja: przy odcieciu/wygasnieciu licencji zabij procesy UiPath (domyslnie wlaczone na Windows)
 OPS_SEED_KILL_ON_DENY=1
+
+# Telemetria sprawdzen licencji do panelu (GitHub Pages)
+# OPS_SEED_TELEMETRY=1
+# OPS_SEED_TELEMETRY_TOKEN=ghp_...
+# OPS_SEED_TELEMETRY_OWNER=mikzielinski
+# OPS_SEED_TELEMETRY_REPO=rpalicense
+# OPS_SEED_TELEMETRY_BRANCH=main
+# OPS_SEED_TELEMETRY_PATH=docs/assets/robot-events.json
