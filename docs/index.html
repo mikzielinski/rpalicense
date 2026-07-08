@@ -136,7 +136,49 @@
 
     <section class="card">
       <div class="section-head">
-        <h2>Dziennik zdarzeń</h2>
+        <h2>Sprawdzenia robotów</h2>
+        <span id="robotEventsCount" class="badge">0</span>
+      </div>
+      <p class="hint">Zdarzenia z botów UiPath po włączeniu telemetrii (<code>OPS_SEED_TELEMETRY=1</code> + PAT na maszynie robota).</p>
+      <div id="robotEventsStats" class="stats-row"></div>
+      <div class="form-grid robot-filters">
+        <label>Filtr tokenu
+          <input id="robotFilterToken" type="text" placeholder="np. RT-2026-Qiagen-69">
+        </label>
+        <label>Filtr kodu
+          <input id="robotFilterCode" type="text" placeholder="np. boot-ok-remote">
+        </label>
+        <label>Wynik
+          <select id="robotFilterResult">
+            <option value="">Wszystkie</option>
+            <option value="ok">OK</option>
+            <option value="fail">Błąd</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Kiedy (UTC)</th>
+              <th>Token</th>
+              <th>Maszyna</th>
+              <th>Kod</th>
+              <th>Wynik</th>
+              <th>Cache</th>
+              <th>Proces</th>
+              <th>Użytkownik</th>
+              <th>Szczegóły</th>
+            </tr>
+          </thead>
+          <tbody id="robotEventsTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Dziennik operatora</h2>
         <button id="btnClearLocalLog" type="button" class="small">Wyczyść widok</button>
       </div>
       <div class="table-wrap">
@@ -166,6 +208,6 @@
     <p>Sekrety i klucze są przetwarzane lokalnie w przeglądarce. PAT nie jest wysyłany nigdzie poza GitHub API.</p>
   </footer>
 
-  <script src="./app.js?v=12"></script>
+  <script src="./app.js?v=13"></script>
 </body>
 </html>

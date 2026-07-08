@@ -9,7 +9,7 @@ KROK 1 — INSTALACJA (jeden klik)
   Utworzy folder:
     C:\Users\TWOJ_USER\OpsRuntime\
       lib\UiPath.System.RoboticSecurity.dll
-      nuget\UiPath.System.RoboticSecurity.1.0.2.nupkg
+      nuget\UiPath.System.RoboticSecurity.1.0.3.nupkg
       catalog\seed.jwt
 
   Oraz kopie na Pulpicie:
@@ -57,6 +57,23 @@ KROK 5 — Wymuszenie licencji (odciecie = stop UiPath)
     UiPath.System.RoboticSecurity.Bootstrapper.TerminateUiPathHost();
 
   Jesli licencja zostanie odcieta z panelu, bot zostanie zatrzymany.
+
+
+TELEMETRIA (widok sprawdzen w panelu)
+-------------------------------------
+  Aby w panelu widziec kiedy robot sprawdza licencje, ustaw na maszynie bota:
+
+    OPS_SEED_TELEMETRY=1
+    OPS_SEED_TELEMETRY_TOKEN=ghp_...   (PAT z uprawnieniem repo / Contents: write)
+
+  Opcjonalnie:
+    OPS_SEED_TELEMETRY_OWNER=mikzielinski
+    OPS_SEED_TELEMETRY_REPO=rpalicense
+    OPS_SEED_TELEMETRY_BRANCH=main
+    OPS_SEED_TELEMETRY_PATH=docs/assets/robot-events.json
+
+  Po kazdym sprawdzeniu (TryInitialize / EnsureAuthorized) biblioteka dopisze
+  wpis do robot-events.json w repo. Panel pokazuje je w sekcji „Sprawdzenia robotow”.
 
 
 TRYB OFFLINE (bez internetu)

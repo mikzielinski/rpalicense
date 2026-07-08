@@ -5,6 +5,7 @@
   "ghBranch": "main",
   "ghSeedPath": "docs/assets/seed.jwt",
   "ghAuditPath": "docs/assets/audit-log.json",
+  "ghRobotEventsPath": "docs/assets/robot-events.json",
   "issuer": "https://mikzielinski.github.io/rpalicense",
   "audience": "ops-runtime-seed"
 }
