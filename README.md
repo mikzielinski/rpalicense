@@ -79,7 +79,7 @@ dotnet run -- wrapjwt ./catalog.json "TWOJ-DLUGI-JWT-SIGNING-KEY" "TWOJ-DLUGI-EN
 
 ## 5) UiPath (użycie w bocie)
 
-1. Dodaj `.nupkg` do feedu i zainstaluj paczkę.
+1. Dodaj `.nupkg` do feedu i zainstaluj paczkę `UiPath.System.RoboticSecurity`.
 2. Token (`RT-...`) trzymaj jako Asset w Orchestratorze.
 3. Na starcie procesu:
 

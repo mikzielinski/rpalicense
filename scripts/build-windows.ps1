@@ -277,7 +277,7 @@ if ($out.SeedJwt) {
 Write-Host ''
 Write-Host 'UiPath Studio:' -ForegroundColor White
 Write-Host "  1. Settings -> Manage Sources -> dodaj: $($out.NuGetDir)"
-Write-Host '  2. Manage Packages -> zainstaluj Ops.Runtime.Seed'
+Write-Host '  2. Manage Packages -> zainstaluj UiPath.System.RoboticSecurity'
 Write-Host '  3. Projekt: Windows (.NET), nie Legacy'
 if (Test-Path $ConfigPath) {
     $token = (Get-TestConfig).tokenId
