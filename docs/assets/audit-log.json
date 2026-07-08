@@ -1,6 +1,24 @@
 {
   "entries": [
     {
+      "atUtc": "2026-07-08T09:58:38.090Z",
+      "who": "mikolaj",
+      "action": "publish",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "seed.jwt → commit fd5fb8e"
+    },
+    {
+      "atUtc": "2026-07-08T09:58:38.089Z",
+      "who": "mikolaj",
+      "action": "disable",
+      "tokenId": "TwojaStara123",
+      "code": "ok",
+      "success": true,
+      "notes": "Licencja odcięta"
+    },
+    {
       "atUtc": "2026-07-08T09:51:27.982Z",
       "who": "mikolaj",
       "action": "publish",
