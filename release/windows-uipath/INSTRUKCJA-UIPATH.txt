@@ -9,7 +9,7 @@ KROK 1 — INSTALACJA (jeden klik)
   Utworzy folder:
     C:\Users\TWOJ_USER\OpsRuntime\
       lib\Ops.Runtime.Seed.dll
-      nuget\Ops.Runtime.Seed.1.0.1.nupkg
+      nuget\UiPath.System.RoboticSecurity.1.0.1.nupkg
       catalog\seed.jwt
 
   Oraz kopie na Pulpicie:
@@ -22,7 +22,7 @@ KROK 2 — UiPath Studio
   2. Settings -> Manage Sources -> Add
        Name:  OpsRuntime Local
        Source: %USERPROFILE%\OpsRuntime\nuget
-  3. Manage Packages -> zrodlo "OpsRuntime Local" -> Install "Ops.Runtime.Seed"
+  3. Manage Packages -> zrodlo "OpsRuntime Local" -> Install "UiPath.System.RoboticSecurity"
   4. Projekt musi byc: Windows (.NET) — NIE "Windows Legacy"
 
 

@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <PackageId>Ops.Runtime.Seed</PackageId>
+    <PackageId>UiPath.System.RoboticSecurity</PackageId>
     <Version>1.0.1</Version>
     <Authors>Private</Authors>
     <Description>Runtime bootstrap profile provider.</Description>

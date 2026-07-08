@@ -144,7 +144,7 @@ cat > "$HTML" <<EOF
     <table>
       <tr><th>Package</th><td><code>$(basename "$NUPKG")</code></td></tr>
       <tr><th>Path</th><td>$NUPKG</td></tr>
-      <tr><th>Package ID</th><td>Ops.Runtime.Seed</td></tr>
+      <tr><th>Package ID</th><td>UiPath.System.RoboticSecurity</td></tr>
       <tr><th>Version</th><td>1.0.0</td></tr>
     </table>
   </div>
