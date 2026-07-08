@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Ops.Runtime.Seed;
+namespace UiPath.System.RoboticSecurity;
 
 public static class Bootstrapper
 {

@@ -5,7 +5,9 @@
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>UiPath.System.RoboticSecurity</PackageId>
-    <Version>1.0.1</Version>
+    <AssemblyName>UiPath.System.RoboticSecurity</AssemblyName>
+    <RootNamespace>UiPath.System.RoboticSecurity</RootNamespace>
+    <Version>1.0.2</Version>
     <Authors>Private</Authors>
     <Description>Runtime bootstrap profile provider.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

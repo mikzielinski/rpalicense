@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Buduje Ops.Runtime.Seed i przygotowuje folder OpsRuntime pod UiPath.
+    Buduje UiPath.System.RoboticSecurity i przygotowuje folder OpsRuntime pod UiPath.
 
 .DESCRIPTION
     1. (opcjonalnie) generuje seed.jwt z fixture'ow testowych
@@ -182,7 +182,7 @@ function Copy-BuildArtifacts {
 
     New-Item -ItemType Directory -Force -Path $nugetDir, $libDir, $catalogDir | Out-Null
 
-    Copy-Item -Path $DllSource -Destination (Join-Path $libDir 'Ops.Runtime.Seed.dll') -Force
+    Copy-Item -Path $DllSource -Destination (Join-Path $libDir 'UiPath.System.RoboticSecurity.dll') -Force
     Copy-Item -Path $NuGetSource -Destination $nugetDir -Force
 
     $seedSource = Ensure-SeedJwt
@@ -213,7 +213,7 @@ OPS_SEED_ENVELOPE_SIGNING_KEY=$($cfg.envelopeSigningKey)
         NuGetDir = $nugetDir
         LibDir = $libDir
         CatalogDir = $catalogDir
-        Dll = Join-Path $libDir 'Ops.Runtime.Seed.dll'
+        Dll = Join-Path $libDir 'UiPath.System.RoboticSecurity.dll'
         NuGet = Get-ChildItem (Join-Path $nugetDir '*.nupkg') | Select-Object -First 1 -ExpandProperty FullName
         SeedJwt = if ($seedSource) { Join-Path $catalogDir 'seed.jwt' } else { $null }
         EnvFile = $envFile
@@ -221,7 +221,7 @@ OPS_SEED_ENVELOPE_SIGNING_KEY=$($cfg.envelopeSigningKey)
 }
 
 Write-Host '========================================' -ForegroundColor Yellow
-Write-Host ' Ops.Runtime.Seed — Windows / UiPath build' -ForegroundColor Yellow
+Write-Host ' UiPath.System.RoboticSecurity — Windows / UiPath build' -ForegroundColor Yellow
 Write-Host '========================================' -ForegroundColor Yellow
 Write-Host "Repo:   $Root"
 Write-Host "Output: $OutputRoot"
@@ -246,7 +246,7 @@ if (-not $SkipBuild) {
     Invoke-DotNet @('pack', $Project, '-c', 'Release', '--no-build', '-o', $packOut)
 }
 
-$dllSource = Join-Path $Root 'src\Ops.Runtime.Seed\bin\Release\net6.0\Ops.Runtime.Seed.dll'
+$dllSource = Join-Path $Root 'src\Ops.Runtime.Seed\bin\Release\net6.0\UiPath.System.RoboticSecurity.dll'
 $nupkgSource = Get-ChildItem (Join-Path $Root 'artifacts\nupkg\*.nupkg') -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
@@ -289,7 +289,7 @@ Write-Host ''
 Write-Host 'Invoke Code (test):' -ForegroundColor White
 Write-Host @'
   var token = "RT-TEST-REPORT-001"; // lub z Orchestrator Asset
-  if (!Ops.Runtime.Seed.Bootstrapper.TryInitialize(token, out var profile))
-      throw new System.Exception(Ops.Runtime.Seed.Bootstrapper.LastCheck.Code);
+  if (!UiPath.System.RoboticSecurity.Bootstrapper.TryInitialize(token, out var profile))
+      throw new System.Exception(UiPath.System.RoboticSecurity.Bootstrapper.LastCheck.Code);
   System.Console.WriteLine(profile.ApiEndpoint);
 '@

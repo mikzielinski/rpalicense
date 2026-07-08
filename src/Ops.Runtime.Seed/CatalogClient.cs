@@ -1,5 +1,5 @@
 using System.Net.Http.Headers;
-namespace Ops.Runtime.Seed;
+namespace UiPath.System.RoboticSecurity;
 
 internal sealed class CatalogClient
 {

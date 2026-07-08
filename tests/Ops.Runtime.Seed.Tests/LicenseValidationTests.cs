@@ -1,4 +1,4 @@
-using Ops.Runtime.Seed;
+using UiPath.System.RoboticSecurity;
 
 namespace Ops.Runtime.Seed.Tests;
 

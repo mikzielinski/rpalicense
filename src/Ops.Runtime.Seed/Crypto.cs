@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Ops.Runtime.Seed;
+namespace UiPath.System.RoboticSecurity;
 
 internal static class Crypto
 {
