@@ -5,6 +5,8 @@ setlocal EnableExtensions
 set "SRC=%~dp0"
 set "DEST=%USERPROFILE%\OpsRuntime"
 set "DESKTOP=%USERPROFILE%\Desktop\OpsRuntime"
+set "PKG_VER=1.0.3"
+set "NUPKG=UiPath.System.RoboticSecurity.%PKG_VER%.nupkg"
 
 echo.
 echo ========================================
@@ -22,6 +24,13 @@ if not exist "%SRC%lib\UiPath.System.RoboticSecurity.dll" (
     exit /b 1
 )
 
+if not exist "%SRC%nuget\%NUPKG%" (
+    echo BLAD: Brak pliku nuget\%NUPKG% w folderze skryptu.
+    echo Upewnij sie, ze masz najnowszy release z repo (git pull).
+    pause
+    exit /b 1
+)
+
 echo Tworzenie folderow...
 mkdir "%DEST%\lib" 2>nul
 mkdir "%DEST%\nuget" 2>nul
@@ -32,14 +41,14 @@ mkdir "%DESKTOP%\catalog" 2>nul
 
 echo Kopiowanie plikow...
 copy /Y "%SRC%lib\UiPath.System.RoboticSecurity.dll"           "%DEST%\lib\" >nul
-copy /Y "%SRC%nuget\UiPath.System.RoboticSecurity.1.0.2.nupkg" "%DEST%\nuget\" >nul
+copy /Y "%SRC%nuget\%NUPKG%" "%DEST%\nuget\" >nul
 copy /Y "%SRC%catalog\seed.jwt"                   "%DEST%\catalog\" >nul
 copy /Y "%SRC%test-config.json"                   "%DEST%\" >nul
 copy /Y "%SRC%offline-env.txt"                    "%DEST%\" >nul
 copy /Y "%SRC%INSTRUKCJA-UIPATH.txt"              "%DEST%\" >nul
 
 copy /Y "%SRC%lib\UiPath.System.RoboticSecurity.dll"           "%DESKTOP%\lib\" >nul
-copy /Y "%SRC%nuget\UiPath.System.RoboticSecurity.1.0.2.nupkg" "%DESKTOP%\nuget\" >nul
+copy /Y "%SRC%nuget\%NUPKG%" "%DESKTOP%\nuget\" >nul
 copy /Y "%SRC%catalog\seed.jwt"                   "%DESKTOP%\catalog\" >nul
 copy /Y "%SRC%INSTRUKCJA-UIPATH.txt"              "%DESKTOP%\" >nul
 
@@ -53,6 +62,8 @@ echo   %DEST%
 echo.
 echo Kopia na Pulpicie:
 echo   %DESKTOP%
+echo.
+echo Pakiet NuGet: %NUPKG%
 echo.
 echo UiPath - dodaj feed NuGet:
 echo   %DEST%\nuget
