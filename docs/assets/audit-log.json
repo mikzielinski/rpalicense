@@ -1,6 +1,24 @@
 {
   "entries": [
     {
+      "atUtc": "2026-07-08T08:52:37.537Z",
+      "who": "mikolaj",
+      "action": "publish",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "seed.jwt → commit 9ec855d"
+    },
+    {
+      "atUtc": "2026-07-08T08:52:37.535Z",
+      "who": "mikolaj",
+      "action": "create",
+      "tokenId": "TwojaStara123",
+      "code": "ok",
+      "success": true,
+      "notes": "Utworzono licencję dla Xelto"
+    },
+    {
       "atUtc": "2026-07-06T11:19:24.664Z",
       "who": "mikolaj",
       "action": "publish",
