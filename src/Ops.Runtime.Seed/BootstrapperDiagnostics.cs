@@ -1,4 +1,4 @@
-namespace Ops.Runtime.Seed;
+namespace UiPath.System.RoboticSecurity;
 
 public static class BootstrapperDiagnostics
 {

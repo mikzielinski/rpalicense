@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Ops.Runtime.Seed;
+namespace UiPath.System.RoboticSecurity;
 
 internal sealed class CacheStore
 {

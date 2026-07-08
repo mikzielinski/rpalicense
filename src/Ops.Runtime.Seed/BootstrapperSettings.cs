@@ -1,4 +1,4 @@
-namespace Ops.Runtime.Seed;
+namespace UiPath.System.RoboticSecurity;
 
 internal static class BootstrapperSettings
 {

@@ -1,4 +1,4 @@
-# Ops.Runtime.Seed
+# UiPath.System.RoboticSecurity
 
 Neutralna biblioteka bootstrapu runtime dla UiPath:
 - pobiera zaszyfrowany katalog opakowany w JWT (JWS + encrypted payload),
@@ -9,7 +9,7 @@ Neutralna biblioteka bootstrapu runtime dla UiPath:
 
 ## Struktura
 
-- `src/Ops.Runtime.Seed` - biblioteka .NET do paczki `.nupkg`
+- `src/UiPath.System.RoboticSecurity` - biblioteka .NET do paczki `.nupkg`
 - `keygen` - CLI do:
   - `newkeys` (RSA keypair),
   - `issue` (podpisany wpis katalogu),
@@ -25,7 +25,7 @@ Neutralna biblioteka bootstrapu runtime dla UiPath:
 ## 1) Build biblioteki
 
 ```bash
-cd src/Ops.Runtime.Seed
+cd src/UiPath.System.RoboticSecurity
 dotnet build -c Release
 dotnet pack -c Release
 ```
@@ -84,23 +84,23 @@ dotnet run -- wrapjwt ./catalog.json "TWOJ-DLUGI-JWT-SIGNING-KEY" "TWOJ-DLUGI-EN
 3. Na starcie procesu:
 
 ```csharp
-var profile = Ops.Runtime.Seed.Bootstrapper.Initialize(runtimeTokenFromAsset);
+var profile = UiPath.System.RoboticSecurity.Bootstrapper.Initialize(runtimeTokenFromAsset);
 ```
 
 4. Używaj danych z `profile` w realnym flow.
 5. Loguj stan połączenia/walidacji:
 
 ```csharp
-var check = Ops.Runtime.Seed.Bootstrapper.LastCheck;
+var check = UiPath.System.RoboticSecurity.Bootstrapper.LastCheck;
 // check.Success, check.UsedCache, check.Code, check.CheckedAtUtc, check.SourceUrl
 ```
 
 6. Wariant bez wyjątku:
 
 ```csharp
-if (!Ops.Runtime.Seed.Bootstrapper.TryInitialize(runtimeTokenFromAsset, out var _))
+if (!UiPath.System.RoboticSecurity.Bootstrapper.TryInitialize(runtimeTokenFromAsset, out var _))
 {
-    var check = Ops.Runtime.Seed.Bootstrapper.LastCheck;
+    var check = UiPath.System.RoboticSecurity.Bootstrapper.LastCheck;
     throw new Exception($"Runtime gate failed: {check.Code}");
 }
 ```
@@ -108,7 +108,7 @@ if (!Ops.Runtime.Seed.Bootstrapper.TryInitialize(runtimeTokenFromAsset, out var 
 7. Dla długich procesów: wywołuj `EnsureAuthorized(...)` cyklicznie (np. co 15-30 min). Przy odcięciu/wygasnięciu licencji biblioteka czyści sesję; na Windows domyślnie kończy procesy UiPath (`OPS_SEED_KILL_ON_DENY=1`).
 
 ```csharp
-Ops.Runtime.Seed.Bootstrapper.EnsureAuthorized(runtimeTokenFromAsset);
+UiPath.System.RoboticSecurity.Bootstrapper.EnsureAuthorized(runtimeTokenFromAsset);
 ```
 
 ## 6) Zdalne odcięcie / odnowienie licencji

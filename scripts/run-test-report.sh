@@ -10,7 +10,7 @@ TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
 mkdir -p "$REPORTS" "$NUPKG_DIR"
 
 echo "========================================"
-echo " Ops.Runtime.Seed — Full Test Report"
+echo " UiPath.System.RoboticSecurity — Full Test Report"
 echo " $TIMESTAMP"
 echo "========================================"
 
@@ -59,7 +59,7 @@ cat > "$HTML" <<EOF
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Ops.Runtime.Seed Test Report — $TIMESTAMP</title>
+  <title>UiPath.System.RoboticSecurity Test Report — $TIMESTAMP</title>
   <style>
     body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
     h1 { border-bottom: 2px solid #2563eb; padding-bottom: .5rem; }
@@ -73,7 +73,7 @@ cat > "$HTML" <<EOF
   </style>
 </head>
 <body>
-  <h1>Ops.Runtime.Seed — License Validation Test Report</h1>
+  <h1>UiPath.System.RoboticSecurity — License Validation Test Report</h1>
   <p>Generated: <code>$TIMESTAMP</code></p>
 
   <div class="section">
