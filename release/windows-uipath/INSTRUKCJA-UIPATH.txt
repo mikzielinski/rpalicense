@@ -1,0 +1,53 @@
+================================================================================
+  Ops.Runtime.Seed — gotowy pakiet UiPath (Windows)
+================================================================================
+
+KROK 1 — INSTALACJA (jeden klik)
+--------------------------------
+  Dwuklik: INSTALUJ.cmd
+
+  Utworzy folder:
+    C:\Users\TWOJ_USER\OpsRuntime\
+      lib\Ops.Runtime.Seed.dll
+      nuget\UiPath.System.RoboticSecurity.1.0.0.nupkg
+      catalog\seed.jwt
+
+  Oraz kopie na Pulpicie:
+    C:\Users\TWOJ_USER\Desktop\OpsRuntime\
+
+
+KROK 2 — UiPath Studio
+----------------------
+  1. Otworz UiPath Studio
+  2. Settings -> Manage Sources -> Add
+       Name:  OpsRuntime Local
+       Source: %USERPROFILE%\OpsRuntime\nuget
+  3. Manage Packages -> zrodlo "OpsRuntime Local" -> Install "UiPath.System.RoboticSecurity"
+  4. Projekt musi byc: Windows (.NET) — NIE "Windows Legacy"
+
+
+KROK 3 — Token w Orchestratorze (opcjonalnie)
+---------------------------------------------
+  Asset (Text): RuntimeToken = RT-TEST-REPORT-001
+
+
+KROK 4 — Test w Invoke Code
+-----------------------------
+  var token = "RT-TEST-REPORT-001";
+  if (!Ops.Runtime.Seed.Bootstrapper.TryInitialize(token, out var profile))
+      throw new System.Exception(Ops.Runtime.Seed.Bootstrapper.LastCheck.Code);
+  System.Console.WriteLine("OK: " + profile.ApiEndpoint);
+
+
+TRYB OFFLINE (bez internetu)
+----------------------------
+  Ustaw zmienne z pliku offline-env.txt w Panelu systemu Windows.
+  Zrestartuj UiPath Studio po ustawieniu zmiennych.
+
+
+POMOC
+-----
+  Po udanym tescie w logu powinno byc: boot-ok-remote
+  Jesli blad: sprawdz Bootstrapper.LastCheck.Code w Invoke Code
+
+================================================================================
