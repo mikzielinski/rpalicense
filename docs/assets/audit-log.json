@@ -1,6 +1,24 @@
 {
   "entries": [
     {
+      "atUtc": "2026-07-08T09:51:27.982Z",
+      "who": "mikolaj",
+      "action": "publish",
+      "tokenId": "-",
+      "code": "ok",
+      "success": true,
+      "notes": "seed.jwt → commit 0292124"
+    },
+    {
+      "atUtc": "2026-07-08T09:51:27.981Z",
+      "who": "mikolaj",
+      "action": "renew",
+      "tokenId": "TwojaStara123",
+      "code": "ok",
+      "success": true,
+      "notes": "Przedłużono do 2027-07-08T09:51:27.265Z"
+    },
+    {
       "atUtc": "2026-07-08T09:46:46.305Z",
       "who": "mikolaj",
       "action": "publish",
