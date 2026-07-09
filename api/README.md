@@ -1,8 +1,9 @@
-# Ops License API
+# Ops License API (opcjonalny własny serwer)
+
+> **Zalecane bez hostowania:** użyj **GitHub Actions + Pages** — patrz `docs/ACTIONS-SETUP.md`.  
+> Ten serwis jest tylko gdy chcesz własną domenę / VPS zamiast Actions.
 
 Serwer pośredniczący między panelem / robotami a GitHub Contents API.
-
-**PAT GitHub jest tylko tutaj (na serwerze).** Panel i roboty używają prostego klucza API.
 
 ## Uruchomienie lokalne
 

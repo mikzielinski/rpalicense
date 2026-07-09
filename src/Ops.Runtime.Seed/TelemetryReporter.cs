@@ -50,6 +50,10 @@ internal static class TelemetryReporter
                 {
                     await ReportToLicenseApiAsync(snapshot).ConfigureAwait(false);
                 }
+                else if (BootstrapperSettings.TelemetryUseDispatch)
+                {
+                    await ReportToActionsDispatchAsync(snapshot).ConfigureAwait(false);
+                }
                 else
                 {
                     await ReportToGitHubAsync(snapshot).ConfigureAwait(false);
@@ -87,6 +91,49 @@ internal static class TelemetryReporter
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v1/telemetry");
         request.Headers.Add("X-Api-Key", apiKey);
         request.Headers.UserAgent.ParseAdd("UiPath.System.RoboticSecurity/1.0");
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        using var response = await Http.SendAsync(request).ConfigureAwait(false);
+        _ = response.IsSuccessStatusCode;
+    }
+
+    private static async Task ReportToActionsDispatchAsync(ValidationSnapshot snapshot)
+    {
+        var token = BootstrapperSettings.DispatchGitHubToken;
+        var owner = BootstrapperSettings.DispatchGitHubOwner;
+        var repo = BootstrapperSettings.DispatchGitHubRepo;
+        var apiKey = BootstrapperSettings.TelemetryApiKey;
+        if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(apiKey))
+        {
+            return;
+        }
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            event_type = "robot-telemetry",
+            client_payload = new
+            {
+                apiKey,
+                @event = new RobotEventRecord
+                {
+                    AtUtc = DateTimeOffset.UtcNow.ToString("O"),
+                    TokenId = snapshot.TokenId,
+                    Machine = snapshot.Machine,
+                    Code = snapshot.Code,
+                    Success = snapshot.Success,
+                    UsedCache = snapshot.UsedCache,
+                    Notes = snapshot.Notes,
+                    ProcessName = Process.GetCurrentProcess().ProcessName,
+                    WindowsIdentity = Environment.UserName
+                }
+            }
+        }, Json.Options);
+
+        var url = $"https://api.github.com/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/dispatches";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.UserAgent.ParseAdd("UiPath.System.RoboticSecurity/1.0");
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
         using var response = await Http.SendAsync(request).ConfigureAwait(false);

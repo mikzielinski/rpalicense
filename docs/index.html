@@ -40,14 +40,14 @@
         <label>URL seed.jwt (live)
           <input id="cfgSeedUrl" type="url">
         </label>
-        <label>URL API (publikacja)
-          <input id="cfgApiBaseUrl" type="url" placeholder="https://twoja-domena.pl">
+        <label>URL API (opcjonalnie — własny serwer)
+          <input id="cfgApiBaseUrl" type="url" placeholder="puste = GitHub Actions + Pages">
         </label>
-        <label>Klucz API (operator)
-          <input id="cfgApiKey" type="password" placeholder="bez PAT — tylko klucz API">
+        <label>Klucz operatora (repo secret)
+          <input id="cfgApiKey" type="password" placeholder="OPS_API_OPERATOR_KEY z GitHub Secrets">
         </label>
-        <label>GitHub PAT (legacy, opcjonalnie)
-          <input id="cfgGhToken" type="password" placeholder="tylko gdy brak API">
+        <label>GitHub token (dispatch Actions)
+          <input id="cfgGhToken" type="password" placeholder="tylko repo — uruchamia workflow">
         </label>
         <label>Pepper (szyfrowanie payload)
           <input id="cfgPepper" type="password">
@@ -96,7 +96,7 @@
           <tbody id="licenseTableBody"></tbody>
         </table>
       </div>
-      <p id="publishStatus" class="status">Publikacja przez API (zalecane) lub legacy PAT z uprawnieniem zapisu do repo.</p>
+      <p id="publishStatus" class="status">Zalecane: GitHub Actions + Pages (token dispatch + klucz z repo Secrets). Bez osobnego serwera.</p>
     </section>
 
     <section class="card">
@@ -211,9 +211,9 @@
   </main>
 
   <footer class="app-footer">
-    <p>Sekrety kryptograficzne są przetwarzane lokalnie w przeglądarce. Publikacja idzie przez API (klucz operatora) — PAT GitHub tylko na serwerze API.</p>
+    <p>Sekrety kryptograficzne lokalnie w przeglądarce. Publikacja przez GitHub Actions — PAT nie zapisuje plików bezpośrednio, tylko uruchamia workflow.</p>
   </footer>
 
-  <script src="./app.js?v=14"></script>
+  <script src="./app.js?v=15"></script>
 </body>
 </html>

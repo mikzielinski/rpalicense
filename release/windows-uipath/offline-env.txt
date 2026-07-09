@@ -12,10 +12,14 @@ OPS_SEED_ENVELOPE_SIGNING_KEY=test-jwt-signing-key-ops-runtime-seed-2026
 # Produkcja: przy odcieciu/wygasnieciu licencji zabij procesy UiPath (domyslnie wlaczone na Windows)
 OPS_SEED_KILL_ON_DENY=1
 
-# Telemetria sprawdzen licencji do panelu (API — zalecane)
+# Telemetria — GitHub Actions + Pages (zalecane)
 # OPS_SEED_TELEMETRY=1
-# OPS_SEED_TELEMETRY_API_URL=https://twoja-domena.pl
-# OPS_SEED_TELEMETRY_API_KEY=klucz-robota
+# OPS_SEED_TELEMETRY_DISPATCH=1
+# OPS_SEED_TELEMETRY_API_KEY=klucz-z-repo-secrets
+# OPS_SEED_DISPATCH_TOKEN=ghp_...
 
-# Legacy: bezposrednio do GitHub (wymaga PAT na robocie)
+# Telemetria — wlasny serwer API (opcjonalnie)
+# OPS_SEED_TELEMETRY_API_URL=https://twoja-domena.pl
+
+# Legacy: bezposrednio GitHub Contents API
 # OPS_SEED_TELEMETRY_TOKEN=ghp_...

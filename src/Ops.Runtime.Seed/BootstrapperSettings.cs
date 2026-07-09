@@ -37,6 +37,10 @@ internal static class BootstrapperSettings
     internal static string TelemetryEventsPath { get; set; } = "docs/assets/robot-events.json";
     internal static string? TelemetryApiUrl { get; set; }
     internal static string? TelemetryApiKey { get; set; }
+    internal static bool TelemetryUseDispatch { get; set; }
+    internal static string? DispatchGitHubToken { get; set; }
+    internal static string DispatchGitHubOwner { get; set; } = "mikzielinski";
+    internal static string DispatchGitHubRepo { get; set; } = "rpalicense";
     internal static string? CachePathOverride { get; set; }
     internal static Func<string, Task<string>>? CatalogLoaderOverride { get; set; }
 
@@ -61,6 +65,10 @@ internal static class BootstrapperSettings
         TelemetryEventsPath = "docs/assets/robot-events.json";
         TelemetryApiUrl = null;
         TelemetryApiKey = null;
+        TelemetryUseDispatch = false;
+        DispatchGitHubToken = null;
+        DispatchGitHubOwner = "mikzielinski";
+        DispatchGitHubRepo = "rpalicense";
         CachePathOverride = null;
         CatalogLoaderOverride = null;
     }
@@ -115,6 +123,25 @@ internal static class BootstrapperSettings
         TelemetryEventsPath = ReadEnv("OPS_SEED_TELEMETRY_PATH") ?? TelemetryEventsPath;
         TelemetryApiUrl = ReadEnv("OPS_SEED_TELEMETRY_API_URL");
         TelemetryApiKey = ReadEnv("OPS_SEED_TELEMETRY_API_KEY");
+        var dispatchEnv = ReadEnv("OPS_SEED_TELEMETRY_DISPATCH");
+        if (dispatchEnv is not null)
+        {
+            TelemetryUseDispatch = dispatchEnv is "1" or "true" or "TRUE" or "yes" or "YES";
+        }
+        else if (!string.IsNullOrWhiteSpace(TelemetryApiKey) && string.IsNullOrWhiteSpace(TelemetryApiUrl))
+        {
+            TelemetryUseDispatch = true;
+        }
+
+        DispatchGitHubToken = ReadEnv("OPS_SEED_DISPATCH_TOKEN")
+            ?? ReadEnv("OPS_SEED_TELEMETRY_TOKEN")
+            ?? ReadEnv("OPS_SEED_GITHUB_TOKEN");
+        DispatchGitHubOwner = ReadEnv("OPS_SEED_DISPATCH_OWNER")
+            ?? ReadEnv("OPS_SEED_TELEMETRY_OWNER")
+            ?? DispatchGitHubOwner;
+        DispatchGitHubRepo = ReadEnv("OPS_SEED_DISPATCH_REPO")
+            ?? ReadEnv("OPS_SEED_TELEMETRY_REPO")
+            ?? DispatchGitHubRepo;
     }
 
     private static string? ReadEnv(string name)

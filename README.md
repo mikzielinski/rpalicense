@@ -140,22 +140,19 @@ cd keygen
 dotnet run -- exportjwk ./keys/seal.private.pem
 ```
 
-## 9) API publikacji (bez PAT w panelu i na robotach)
+## 9) Publikacja bez osobnego serwera (GitHub Actions + Pages)
 
-Zamiast wpisywać GitHub PAT w przeglądarce i na każdym robocie, uruchom serwis `api/Ops.License.Api`:
+**Zalecane** — panel na Pages, backend = workflow w tym samym repo:
 
-```bash
-export GITHUB_TOKEN=ghp_...          # tylko na serwerze
-export OPS_API_OPERATOR_KEY=...      # panel
-export OPS_API_ROBOT_KEY=...         # roboty (telemetria)
+1. Ustaw secrets: `OPS_API_OPERATOR_KEY`, `OPS_API_ROBOT_KEY` (patrz `docs/ACTIONS-SETUP.md`)
+2. W panelu: **klucz operatora** + **GitHub token** (dispatch), URL API **puste**
+3. Publikacja uruchamia `.github/workflows/license-ops.yml` → commit do `docs/assets/` → Pages
 
-dotnet run --project api/Ops.License.Api/Ops.License.Api.csproj
-```
+Robot (telemetria): `OPS_SEED_TELEMETRY_DISPATCH=1` + klucz robota + token dispatch.
 
-- **Panel:** URL API + klucz operatora (bez PAT)
-- **Robot:** `OPS_SEED_TELEMETRY_API_URL` + `OPS_SEED_TELEMETRY_API_KEY`
+### Opcja: własny serwer API
 
-Szczegóły: `api/README.md`
+Jeśli potrzebujesz dedykowanego hosta — `api/Ops.License.Api` (Docker / dotnet run). Patrz `api/README.md`.
 
 ## 8) Konfiguracja stałych w bibliotece
 

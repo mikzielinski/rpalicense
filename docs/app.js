@@ -155,6 +155,17 @@ function usesApiPublish() {
   return Boolean(s.apiBaseUrl?.trim() && s.apiKey?.trim());
 }
 
+function usesActionsDispatch() {
+  const s = state.settings;
+  return Boolean(
+    !usesApiPublish() &&
+    s.ghOwner?.trim() &&
+    s.ghRepo?.trim() &&
+    s.ghToken?.trim() &&
+    s.apiKey?.trim()
+  );
+}
+
 function publishReady() {
   saveSettingsFromForm();
   const s = state.settings;
@@ -169,10 +180,15 @@ function publishReady() {
   if (usesApiPublish()) {
     if (!s.apiBaseUrl) missing.push("URL API");
     if (!s.apiKey) missing.push("Klucz API");
+  } else if (usesActionsDispatch()) {
+    if (!s.ghOwner) missing.push("GitHub owner");
+    if (!s.ghRepo) missing.push("GitHub repo");
+    if (!s.ghToken) missing.push("GitHub token (dispatch)");
+    if (!s.apiKey) missing.push("Klucz operatora (repo secret)");
   } else {
     if (!s.ghOwner) missing.push("GitHub owner");
     if (!s.ghRepo) missing.push("GitHub repo");
-    if (!s.ghToken) missing.push("GitHub PAT lub API");
+    if (!s.ghToken) missing.push("GitHub token / klucze");
   }
   state.publishMissing = missing;
   return missing.length === 0;
@@ -311,7 +327,79 @@ async function fetchSeedForPublish() {
     const json = await apiRequest("/v1/seed", "GET");
     return { sha: json.sha, text: json.jwt ?? "" };
   }
+  if (usesActionsDispatch()) {
+    const jwt = await fetchText(state.settings.seedUrl);
+    return { sha: null, text: jwt };
+  }
   return fetchGitHubFileMeta(state.settings.ghSeedPath);
+}
+
+async function dispatchLicenseOps(eventType, clientPayload) {
+  const s = state.settings;
+  const url = `https://api.github.com/repos/${encodeURIComponent(s.ghOwner)}/${encodeURIComponent(s.ghRepo)}/dispatches`;
+  await githubRequest(url, "POST", {
+    event_type: eventType,
+    client_payload: clientPayload
+  });
+}
+
+async function publishAllViaActions(options = {}) {
+  const mutation = options.mutation ?? null;
+  const operatorKey = state.settings.apiKey?.trim();
+
+  if (mutation || !state.dirty) {
+    const jwt = await fetchText(state.settings.seedUrl);
+    catalog = await unwrapSeedJwt(jwt);
+    if (mutation) {
+      applyCatalogMutation(mutation);
+    }
+  }
+
+  if (mutation && mutation.mode !== "create" && mutation.mode !== "delete") {
+    if (!catalog.entries.some((e) => e.tokenId === mutation.tokenId)) {
+      throw new Error(`Token ${mutation.tokenId} nie istnieje w katalogu na serwerze.`);
+    }
+  }
+
+  if (!catalog.entries.length) {
+    const msg = "Katalog jest pusty — utwórz licencję lub odśwież z serwera.";
+    setStatus("publishStatus", msg, "warn");
+    return { ok: false, error: msg };
+  }
+
+  const message = options.commitMessage ?? "Update seed.jwt (panel)";
+  setStatus("publishStatus", "Wysyłam do GitHub Actions (Pages)…", "");
+
+  await resealAllEntries();
+  const jwt = await buildSeedJwt(catalog);
+
+  await dispatchLicenseOps("publish-seed", {
+    apiKey: operatorKey,
+    jwt,
+    message
+  });
+
+  if (mutation) {
+    appendAuditForMutation(mutation);
+  }
+  appendAudit("publish", null, "ok", "seed.jwt → GitHub Actions");
+
+  try {
+    await dispatchLicenseOps("publish-audit", {
+      apiKey: operatorKey,
+      entries: auditLog.slice(0, 500),
+      message: "Update audit-log.json (panel)"
+    });
+  } catch (auditError) {
+    appendAudit("publish-audit", null, "warn", auditError.message);
+  }
+
+  state.dirty = false;
+  const msg = "Wysłano do GitHub Actions. Pages zaktualizuje się za ~1–2 min.";
+  setStatus("publishStatus", msg, "ok");
+  setHeader(`Opublikowano ${catalog.entries.length} licencji (workflow na GitHub).`, "ok");
+  renderAll();
+  return { ok: true };
 }
 
 async function publishAllViaApi(options = {}) {
@@ -384,6 +472,27 @@ async function publishAll(options = {}) {
         // keep local state
       }
       const msg = `Błąd publikacji API: ${error.message}`;
+      setStatus("publishStatus", msg, "bad");
+      appendAudit("publish", null, "error", error.message);
+      renderAuditTable();
+      return { ok: false, error: error.message };
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  if (usesActionsDispatch()) {
+    setPublishing(true);
+    try {
+      return await publishAllViaActions(options);
+    } catch (error) {
+      try {
+        await refreshCatalogFromPages();
+        renderAll();
+      } catch {
+        // keep local state
+      }
+      const msg = `Błąd GitHub Actions: ${error.message}`;
       setStatus("publishStatus", msg, "bad");
       appendAudit("publish", null, "error", error.message);
       renderAuditTable();
@@ -591,6 +700,23 @@ async function testPublishConnection() {
       );
     } catch (error) {
       setStatus("settingsStatus", `API: ${error.message}`, "bad");
+    }
+    return;
+  }
+
+  if (usesActionsDispatch()) {
+    setStatus("settingsStatus", "Testuję GitHub Actions dispatch…", "");
+    try {
+      await dispatchLicenseOps("ping", {
+        apiKey: state.settings.apiKey
+      });
+      setStatus(
+        "settingsStatus",
+        "OK: wysłano testowy dispatch do GitHub Actions. Sprawdź zakładkę Actions w repo.",
+        "ok"
+      );
+    } catch (error) {
+      setStatus("settingsStatus", `GitHub Actions: ${error.message}`, "bad");
     }
     return;
   }
@@ -981,6 +1107,9 @@ async function syncCatalogFromServer() {
   if (usesApiPublish()) {
     const meta = await fetchSeedForPublish();
     catalog = await unwrapSeedJwt(meta.text);
+  } else if (usesActionsDispatch()) {
+    const jwt = await fetchText(state.settings.seedUrl);
+    catalog = await unwrapSeedJwt(jwt);
   } else {
     if (!state.settings.ghOwner || !state.settings.ghRepo || !state.settings.ghToken) {
       throw new Error("Brak konfiguracji GitHub (owner/repo/PAT).");
