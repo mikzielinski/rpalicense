@@ -40,8 +40,14 @@
         <label>URL seed.jwt (live)
           <input id="cfgSeedUrl" type="url">
         </label>
-        <label>GitHub PAT
-          <input id="cfgGhToken" type="password" placeholder="ghp_… (contents:write)">
+        <label>URL API (publikacja)
+          <input id="cfgApiBaseUrl" type="url" placeholder="https://twoja-domena.pl">
+        </label>
+        <label>Klucz API (operator)
+          <input id="cfgApiKey" type="password" placeholder="bez PAT — tylko klucz API">
+        </label>
+        <label>GitHub PAT (legacy, opcjonalnie)
+          <input id="cfgGhToken" type="password" placeholder="tylko gdy brak API">
         </label>
         <label>Pepper (szyfrowanie payload)
           <input id="cfgPepper" type="password">
@@ -66,7 +72,7 @@
       <div class="actions">
         <button id="btnSaveSettings" type="button">Zapisz ustawienia</button>
         <button id="btnLoadTestJwk" type="button">Załaduj klucz testowy</button>
-        <button id="btnTestGitHub" type="button">Testuj GitHub PAT</button>
+        <button id="btnTestGitHub" type="button">Testuj połączenie</button>
       </div>
       <p id="settingsStatus" class="status"></p>
     </details>
@@ -90,7 +96,7 @@
           <tbody id="licenseTableBody"></tbody>
         </table>
       </div>
-      <p id="publishStatus" class="status">Wymaga PAT z uprawnieniem zapisu do repo (scope: repo lub Contents: write).</p>
+      <p id="publishStatus" class="status">Publikacja przez API (zalecane) lub legacy PAT z uprawnieniem zapisu do repo.</p>
     </section>
 
     <section class="card">
@@ -139,7 +145,7 @@
         <h2>Sprawdzenia robotów</h2>
         <span id="robotEventsCount" class="badge">0</span>
       </div>
-      <p class="hint">Zdarzenia z botów UiPath po włączeniu telemetrii (<code>OPS_SEED_TELEMETRY=1</code> + PAT na maszynie robota).</p>
+      <p class="hint">Zdarzenia z botów UiPath po włączeniu telemetrii (<code>OPS_SEED_TELEMETRY=1</code> + URL API i klucz na robocie).</p>
       <div id="robotEventsStats" class="stats-row"></div>
       <div class="form-grid robot-filters">
         <label>Filtr tokenu
@@ -205,9 +211,9 @@
   </main>
 
   <footer class="app-footer">
-    <p>Sekrety i klucze są przetwarzane lokalnie w przeglądarce. PAT nie jest wysyłany nigdzie poza GitHub API.</p>
+    <p>Sekrety kryptograficzne są przetwarzane lokalnie w przeglądarce. Publikacja idzie przez API (klucz operatora) — PAT GitHub tylko na serwerze API.</p>
   </footer>
 
-  <script src="./app.js?v=13"></script>
+  <script src="./app.js?v=14"></script>
 </body>
 </html>

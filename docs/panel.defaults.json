@@ -1,5 +1,6 @@
 {
   "seedUrl": "https://mikzielinski.github.io/rpalicense/assets/seed.jwt",
+  "apiBaseUrl": "",
   "ghOwner": "mikzielinski",
   "ghRepo": "rpalicense",
   "ghBranch": "main",

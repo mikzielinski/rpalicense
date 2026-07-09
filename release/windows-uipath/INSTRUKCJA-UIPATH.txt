@@ -9,7 +9,7 @@ KROK 1 — INSTALACJA (jeden klik)
   Utworzy folder:
     C:\Users\TWOJ_USER\OpsRuntime\
       lib\UiPath.System.RoboticSecurity.dll
-      nuget\UiPath.System.RoboticSecurity.1.0.3.nupkg
+      nuget\UiPath.System.RoboticSecurity.1.0.4.nupkg
       catalog\seed.jwt
 
   Oraz kopie na Pulpicie:
@@ -61,19 +61,27 @@ KROK 5 — Wymuszenie licencji (odciecie = stop UiPath)
 
 TELEMETRIA (widok sprawdzen w panelu)
 -------------------------------------
-  Aby w panelu widziec kiedy robot sprawdza licencje, ustaw na maszynie bota:
+  Zalecane — przez API (bez PAT na robocie):
 
     OPS_SEED_TELEMETRY=1
-    OPS_SEED_TELEMETRY_TOKEN=ghp_...   (PAT z uprawnieniem repo / Contents: write)
+    OPS_SEED_TELEMETRY_API_URL=https://twoja-domena.pl
+    OPS_SEED_TELEMETRY_API_KEY=klucz-robota
 
-  Opcjonalnie:
-    OPS_SEED_TELEMETRY_OWNER=mikzielinski
-    OPS_SEED_TELEMETRY_REPO=rpalicense
-    OPS_SEED_TELEMETRY_BRANCH=main
-    OPS_SEED_TELEMETRY_PATH=docs/assets/robot-events.json
+  Legacy — bezposrednio GitHub (wymaga PAT na robocie):
 
-  Po kazdym sprawdzeniu (TryInitialize / EnsureAuthorized) biblioteka dopisze
-  wpis do robot-events.json w repo. Panel pokazuje je w sekcji „Sprawdzenia robotow”.
+    OPS_SEED_TELEMETRY_TOKEN=ghp_...
+
+  Po kazdym sprawdzeniu biblioteka wysle zdarzenie do API (lub GitHub).
+  Panel pokazuje je w sekcji „Sprawdzenia robotow”.
+
+
+PANEL — publikacja bez PAT
+--------------------------
+  Uruchom serwis api/Ops.License.Api (Docker lub dotnet run).
+  Na serwerze ustaw GITHUB_TOKEN + OPS_API_OPERATOR_KEY.
+  W panelu: URL API + klucz operatora (zamiast GitHub PAT).
+
+  Szczegoly: api/README.md
 
 
 TRYB OFFLINE (bez internetu)

@@ -45,6 +45,8 @@ function defaultSettings() {
     ghAuditPath: state.defaults.ghAuditPath ?? "docs/assets/audit-log.json",
     ghRobotEventsPath: state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
     seedUrl: state.defaults.seedUrl ?? "",
+    apiBaseUrl: state.defaults.apiBaseUrl ?? "",
+    apiKey: "",
     pepper: "test-pepper-ops-runtime-seed-2026",
     envelopePepper: "test-envelope-pepper-ops-runtime-2026",
     jwtSigningKey: "test-jwt-signing-key-ops-runtime-seed-2026",
@@ -67,6 +69,7 @@ function loadSettings() {
 
 function saveSettingsFromForm() {
   const tokenInput = byId("cfgGhToken").value.trim();
+  const apiKeyInput = byId("cfgApiKey").value.trim();
   const previous = state.settings ?? {};
   state.settings = {
     operatorName: byId("cfgOperator").value.trim(),
@@ -77,6 +80,8 @@ function saveSettingsFromForm() {
     ghAuditPath: previous.ghAuditPath ?? state.defaults.ghAuditPath ?? "docs/assets/audit-log.json",
     ghRobotEventsPath: previous.ghRobotEventsPath ?? state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
     seedUrl: byId("cfgSeedUrl").value.trim(),
+    apiBaseUrl: byId("cfgApiBaseUrl").value.trim(),
+    apiKey: apiKeyInput || previous.apiKey || "",
     ghToken: tokenInput || previous.ghToken || "",
     pepper: byId("cfgPepper").value,
     envelopePepper: byId("cfgEnvelopePepper").value,
@@ -95,6 +100,8 @@ function applySettingsToForm() {
   byId("cfgGhRepo").value = s.ghRepo ?? "";
   byId("cfgGhBranch").value = s.ghBranch ?? "main";
   byId("cfgSeedUrl").value = s.seedUrl ?? "";
+  byId("cfgApiBaseUrl").value = s.apiBaseUrl ?? "";
+  byId("cfgApiKey").value = s.apiKey ?? "";
   byId("cfgGhToken").value = s.ghToken ?? "";
   byId("cfgPepper").value = s.pepper ?? "";
   byId("cfgEnvelopePepper").value = s.envelopePepper ?? "";
@@ -111,7 +118,7 @@ function bindUi() {
   });
   byId("btnRefreshLive").addEventListener("click", () => refreshFromLive(true));
   byId("btnPublishAll").addEventListener("click", () => publishAll());
-  byId("btnTestGitHub").addEventListener("click", testGitHubConnection);
+  byId("btnTestGitHub").addEventListener("click", testPublishConnection);
   byId("btnLoadTestJwk").addEventListener("click", loadTestJwk);
   byId("cfgSealJwk").addEventListener("input", updateJwkHint);
   byId("btnCreateLicense").addEventListener("click", createLicense);
@@ -143,6 +150,11 @@ function settingsReady() {
   );
 }
 
+function usesApiPublish() {
+  const s = state.settings;
+  return Boolean(s.apiBaseUrl?.trim() && s.apiKey?.trim());
+}
+
 function publishReady() {
   saveSettingsFromForm();
   const s = state.settings;
@@ -154,9 +166,14 @@ function publishReady() {
   if (!s.issuer) missing.push("Issuer");
   if (!s.audience) missing.push("Audience");
   if (!s.sealJwk) missing.push("JWK RSA");
-  if (!s.ghOwner) missing.push("GitHub owner");
-  if (!s.ghRepo) missing.push("GitHub repo");
-  if (!s.ghToken) missing.push("GitHub PAT");
+  if (usesApiPublish()) {
+    if (!s.apiBaseUrl) missing.push("URL API");
+    if (!s.apiKey) missing.push("Klucz API");
+  } else {
+    if (!s.ghOwner) missing.push("GitHub owner");
+    if (!s.ghRepo) missing.push("GitHub repo");
+    if (!s.ghToken) missing.push("GitHub PAT lub API");
+  }
   state.publishMissing = missing;
   return missing.length === 0;
 }
@@ -239,12 +256,141 @@ async function loadRobotEventsFromServer() {
   }
 }
 
+function apiBaseUrl() {
+  return (state.settings.apiBaseUrl ?? "").trim().replace(/\/$/, "");
+}
+
+async function apiRequest(path, method, body = null) {
+  const base = apiBaseUrl();
+  const key = state.settings.apiKey?.trim();
+  if (!base || !key) {
+    throw new Error("Brak URL API lub klucza API.");
+  }
+
+  const headers = {
+    Accept: "application/json",
+    "X-Api-Key": key
+  };
+  if (body) headers["Content-Type"] = "application/json";
+
+  let resp;
+  try {
+    resp = await fetch(`${base}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (error) {
+    throw new Error(
+      error?.message === "Failed to fetch"
+        ? `Nie można połączyć z API (${base}). Sprawdź URL, CORS i czy serwer działa.`
+        : error.message
+    );
+  }
+
+  const text = await resp.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!resp.ok) {
+    const msg = json?.error ?? json?.message ?? text?.slice(0, 300) ?? resp.statusText;
+    if (resp.status === 401) throw new Error(`API 401 — nieprawidłowy klucz API: ${msg}`);
+    if (resp.status === 403) throw new Error(`API 403 — brak uprawnień: ${msg}`);
+    throw new Error(`API ${resp.status}: ${msg}`);
+  }
+
+  return json ?? {};
+}
+
+async function fetchSeedForPublish() {
+  if (usesApiPublish()) {
+    const json = await apiRequest("/v1/seed", "GET");
+    return { sha: json.sha, text: json.jwt ?? "" };
+  }
+  return fetchGitHubFileMeta(state.settings.ghSeedPath);
+}
+
+async function publishAllViaApi(options = {}) {
+  const mutation = options.mutation ?? null;
+
+  const meta = await fetchSeedForPublish();
+  if (mutation) {
+    catalog = await unwrapSeedJwt(meta.text);
+    applyCatalogMutation(mutation);
+  } else if (!state.dirty) {
+    catalog = await unwrapSeedJwt(meta.text);
+  }
+
+  if (mutation && mutation.mode !== "create" && mutation.mode !== "delete") {
+    if (!catalog.entries.some((e) => e.tokenId === mutation.tokenId)) {
+      throw new Error(`Token ${mutation.tokenId} nie istnieje w katalogu na serwerze.`);
+    }
+  }
+
+  if (!catalog.entries.length) {
+    const msg = "Katalog jest pusty — utwórz licencję lub odśwież z serwera.";
+    setStatus("publishStatus", msg, "warn");
+    return { ok: false, error: msg };
+  }
+
+  setStatus("publishStatus", "Publikuję seed.jwt przez API…", "");
+  await resealAllEntries();
+  const jwt = await buildSeedJwt(catalog);
+  const seedResult = await apiRequest("/v1/seed/publish", "POST", {
+    jwt,
+    message: options.commitMessage ?? "Update seed.jwt (panel)"
+  });
+
+  if (mutation) {
+    appendAuditForMutation(mutation);
+  }
+  appendAudit("publish", null, "ok", `seed.jwt → ${String(seedResult.sha ?? "ok").slice(0, 7)}`);
+
+  try {
+    await apiRequest("/v1/audit", "POST", { entries: auditLog.slice(0, 500) });
+  } catch (auditError) {
+    appendAudit("publish-audit", null, "warn", auditError.message);
+  }
+
+  state.dirty = false;
+  const msg = `Opublikowano przez API (commit ${String(seedResult.sha ?? "?").slice(0, 7)}). Pages za ~1–2 min.`;
+  setStatus("publishStatus", msg, "ok");
+  setHeader(`Opublikowano ${catalog.entries.length} licencji na serwerze.`, "ok");
+  renderAll();
+  return { ok: true };
+}
+
 async function publishAll(options = {}) {
   saveSettingsFromForm();
   if (!publishReady()) {
     const msg = formatPublishBlockers() || "Uzupełnij ustawienia.";
     setStatus("publishStatus", msg, "warn");
     return { ok: false, error: msg };
+  }
+
+  if (usesApiPublish()) {
+    setPublishing(true);
+    try {
+      return await publishAllViaApi(options);
+    } catch (error) {
+      try {
+        await syncCatalogFromServer();
+        renderAll();
+      } catch {
+        // keep local state
+      }
+      const msg = `Błąd publikacji API: ${error.message}`;
+      setStatus("publishStatus", msg, "bad");
+      appendAudit("publish", null, "error", error.message);
+      renderAuditTable();
+      return { ok: false, error: error.message };
+    } finally {
+      setPublishing(false);
+    }
   }
 
   const mutation = options.mutation ?? null;
@@ -431,10 +577,30 @@ async function loadTestJwk() {
   }
 }
 
-async function testGitHubConnection() {
+async function testPublishConnection() {
   saveSettingsFromForm();
+  if (usesApiPublish()) {
+    setStatus("settingsStatus", "Testuję połączenie z API…", "");
+    try {
+      const health = await apiRequest("/health", "GET");
+      await apiRequest("/v1/seed", "GET");
+      setStatus(
+        "settingsStatus",
+        `OK: API działa (${apiBaseUrl()}), status: ${health.status ?? "ok"}.`,
+        "ok"
+      );
+    } catch (error) {
+      setStatus("settingsStatus", `API: ${error.message}`, "bad");
+    }
+    return;
+  }
+
   if (!state.settings.ghOwner || !state.settings.ghRepo || !state.settings.ghToken) {
-    return setStatus("settingsStatus", "Podaj owner, repo i PAT, potem Zapisz ustawienia.", "warn");
+    return setStatus(
+      "settingsStatus",
+      "Podaj URL API + klucz (zalecane) lub owner/repo/PAT (legacy).",
+      "warn"
+    );
   }
   setStatus("settingsStatus", "Testuję połączenie z GitHub…", "");
   try {
@@ -457,7 +623,7 @@ async function applyChangeAndPublish(actionLabel, tokenId, options = {}) {
   if (!publishReady()) {
     setStatus(
       "publishStatus",
-      `${actionLabel}: zapisano lokalnie. Uzupełnij PAT w ustawieniach i kliknij „Zapisz i opublikuj”.`,
+      `${actionLabel}: zapisano lokalnie. Uzupełnij klucz API (lub PAT) i kliknij „Zapisz i opublikuj”.`,
       "warn"
     );
     return false;
@@ -806,23 +972,32 @@ async function fetchGitHubFileMeta(path) {
   return { sha, text };
 }
 
-async function syncCatalogFromGitHubApi() {
+async function syncCatalogFromServer() {
   saveSettingsFromForm();
-  const s = state.settings;
-  if (!s.ghOwner || !s.ghRepo || !s.ghToken) {
-    throw new Error("Brak konfiguracji GitHub (owner/repo/PAT).");
-  }
   if (!settingsReady()) {
     throw new Error("Uzupełnij sekrety kryptograficzne w ustawieniach.");
   }
 
-  const { text } = await fetchGitHubFileMeta(s.ghSeedPath);
-  catalog = await unwrapSeedJwt(text);
+  if (usesApiPublish()) {
+    const meta = await fetchSeedForPublish();
+    catalog = await unwrapSeedJwt(meta.text);
+  } else {
+    if (!state.settings.ghOwner || !state.settings.ghRepo || !state.settings.ghToken) {
+      throw new Error("Brak konfiguracji GitHub (owner/repo/PAT).");
+    }
+    const { text } = await fetchGitHubFileMeta(state.settings.ghSeedPath);
+    catalog = await unwrapSeedJwt(text);
+  }
+
   state.liveLoadedAt = new Date();
   state.dirty = false;
   await loadAuditLogFromServer();
   await loadRobotEventsFromServer();
   return catalog;
+}
+
+async function syncCatalogFromGitHubApi() {
+  return syncCatalogFromServer();
 }
 
 async function putGitHubFileOnce(path, content, message, sha) {

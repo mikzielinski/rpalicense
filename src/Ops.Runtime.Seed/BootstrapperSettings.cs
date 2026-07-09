@@ -35,6 +35,8 @@ internal static class BootstrapperSettings
     internal static string TelemetryGitHubRepo { get; set; } = "rpalicense";
     internal static string TelemetryGitHubBranch { get; set; } = "main";
     internal static string TelemetryEventsPath { get; set; } = "docs/assets/robot-events.json";
+    internal static string? TelemetryApiUrl { get; set; }
+    internal static string? TelemetryApiKey { get; set; }
     internal static string? CachePathOverride { get; set; }
     internal static Func<string, Task<string>>? CatalogLoaderOverride { get; set; }
 
@@ -57,6 +59,8 @@ internal static class BootstrapperSettings
         TelemetryGitHubRepo = "rpalicense";
         TelemetryGitHubBranch = "main";
         TelemetryEventsPath = "docs/assets/robot-events.json";
+        TelemetryApiUrl = null;
+        TelemetryApiKey = null;
         CachePathOverride = null;
         CatalogLoaderOverride = null;
     }
@@ -109,6 +113,8 @@ internal static class BootstrapperSettings
         TelemetryGitHubRepo = ReadEnv("OPS_SEED_TELEMETRY_REPO") ?? TelemetryGitHubRepo;
         TelemetryGitHubBranch = ReadEnv("OPS_SEED_TELEMETRY_BRANCH") ?? TelemetryGitHubBranch;
         TelemetryEventsPath = ReadEnv("OPS_SEED_TELEMETRY_PATH") ?? TelemetryEventsPath;
+        TelemetryApiUrl = ReadEnv("OPS_SEED_TELEMETRY_API_URL");
+        TelemetryApiKey = ReadEnv("OPS_SEED_TELEMETRY_API_KEY");
     }
 
     private static string? ReadEnv(string name)

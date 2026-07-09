@@ -140,6 +140,23 @@ cd keygen
 dotnet run -- exportjwk ./keys/seal.private.pem
 ```
 
+## 9) API publikacji (bez PAT w panelu i na robotach)
+
+Zamiast wpisywać GitHub PAT w przeglądarce i na każdym robocie, uruchom serwis `api/Ops.License.Api`:
+
+```bash
+export GITHUB_TOKEN=ghp_...          # tylko na serwerze
+export OPS_API_OPERATOR_KEY=...      # panel
+export OPS_API_ROBOT_KEY=...         # roboty (telemetria)
+
+dotnet run --project api/Ops.License.Api/Ops.License.Api.csproj
+```
+
+- **Panel:** URL API + klucz operatora (bez PAT)
+- **Robot:** `OPS_SEED_TELEMETRY_API_URL` + `OPS_SEED_TELEMETRY_API_KEY`
+
+Szczegóły: `api/README.md`
+
 ## 8) Konfiguracja stałych w bibliotece
 
 W `Bootstrapper.cs` podmień:

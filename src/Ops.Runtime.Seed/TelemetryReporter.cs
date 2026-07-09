@@ -46,13 +46,51 @@ internal static class TelemetryReporter
         {
             try
             {
-                await ReportToGitHubAsync(snapshot).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(BootstrapperSettings.TelemetryApiUrl))
+                {
+                    await ReportToLicenseApiAsync(snapshot).ConfigureAwait(false);
+                }
+                else
+                {
+                    await ReportToGitHubAsync(snapshot).ConfigureAwait(false);
+                }
             }
             catch
             {
                 // Best-effort telemetry.
             }
         });
+    }
+
+    private static async Task ReportToLicenseApiAsync(ValidationSnapshot snapshot)
+    {
+        var baseUrl = BootstrapperSettings.TelemetryApiUrl?.Trim().TrimEnd('/');
+        var apiKey = BootstrapperSettings.TelemetryApiKey;
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey))
+        {
+            return;
+        }
+
+        var payload = JsonSerializer.Serialize(new RobotEventRecord
+        {
+            AtUtc = DateTimeOffset.UtcNow.ToString("O"),
+            TokenId = snapshot.TokenId,
+            Machine = snapshot.Machine,
+            Code = snapshot.Code,
+            Success = snapshot.Success,
+            UsedCache = snapshot.UsedCache,
+            Notes = snapshot.Notes,
+            ProcessName = Process.GetCurrentProcess().ProcessName,
+            WindowsIdentity = Environment.UserName
+        }, Json.Options);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v1/telemetry");
+        request.Headers.Add("X-Api-Key", apiKey);
+        request.Headers.UserAgent.ParseAdd("UiPath.System.RoboticSecurity/1.0");
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        using var response = await Http.SendAsync(request).ConfigureAwait(false);
+        _ = response.IsSuccessStatusCode;
     }
 
     private static async Task ReportToGitHubAsync(ValidationSnapshot snapshot)
