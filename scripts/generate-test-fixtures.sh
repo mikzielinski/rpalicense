@@ -5,7 +5,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURES="$ROOT/test-fixtures"
 KEYS="$FIXTURES/keys"
 CONFIG="$FIXTURES/test-config.json"
-KEYGEN="dotnet run --project $ROOT/keygen/SeedForge.csproj -c Release --"
+KEYGEN="dotnet run --project $ROOT/keygen/SeedForge.csproj -c Release --no-build --"
+
+echo "==> [0/5] Build keygen"
+dotnet build "$ROOT/keygen/SeedForge.csproj" -c Release --nologo -v q
 
 mkdir -p "$KEYS" "$FIXTURES/catalog"
 
