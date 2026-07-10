@@ -366,3 +366,5 @@ internal static class JsonDefaults
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 }
+
+public partial class Program { }

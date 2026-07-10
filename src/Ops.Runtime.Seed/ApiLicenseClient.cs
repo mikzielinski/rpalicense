@@ -8,16 +8,26 @@ namespace UiPath.System.RoboticSecurity;
 
 internal sealed class ApiLicenseClient
 {
-    private static readonly HttpClient Http = new()
-    {
-        Timeout = TimeSpan.FromSeconds(15)
-    };
+    private static HttpClient Http = CreateHttpClient();
 
     private static string? _runtimeSession;
 
     internal static string? RuntimeSession => _runtimeSession;
 
     internal static void ClearRuntimeSession() => _runtimeSession = null;
+
+    internal static void UseHttpHandlerForTesting(HttpMessageHandler handler)
+    {
+        Http = new HttpClient(handler, disposeHandler: true)
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+    }
+
+    internal static void ResetHttpClientForTesting() => Http = CreateHttpClient();
+
+    private static HttpClient CreateHttpClient() =>
+        new() { Timeout = TimeSpan.FromSeconds(15) };
 
     internal static async Task<RuntimeProfile> AuthorizeAsync(
         string runtimeToken,

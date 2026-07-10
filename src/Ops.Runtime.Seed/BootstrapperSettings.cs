@@ -144,7 +144,11 @@ internal static class BootstrapperSettings
         DispatchGitHubRepo = ReadEnv("OPS_SEED_DISPATCH_REPO")
             ?? ReadEnv("OPS_SEED_TELEMETRY_REPO")
             ?? DispatchGitHubRepo;
-        ApiUrl = ReadEnv("OPS_SEED_API_URL") ?? ReadEnv("OPS_LICENSE_API_URL");
+        var apiUrl = ReadEnv("OPS_SEED_API_URL") ?? ReadEnv("OPS_LICENSE_API_URL");
+        if (apiUrl is not null)
+        {
+            ApiUrl = apiUrl;
+        }
     }
 
     private static string? ReadEnv(string name)
