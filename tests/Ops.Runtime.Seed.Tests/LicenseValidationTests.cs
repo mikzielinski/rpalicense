@@ -196,6 +196,95 @@ public sealed class LicenseValidationTests : IDisposable
         Assert.Equal("boot-0x12", Bootstrapper.LastCheck.Code);
     }
 
+    [Fact]
+    public void HostAllowed_OnRestrictedList_ReturnsBootOkRemote()
+    {
+        UseJwt(_manifest.HostRestrictedJwt);
+
+        var profile = Bootstrapper.Initialize(_manifest.TokenId, "ROBOT01");
+
+        Assert.Equal("boot-ok-remote", Bootstrapper.LastCheck.Code);
+        Assert.True(Bootstrapper.LastCheck.Success);
+        Assert.Equal(_manifest.TokenId, profile.TokenId);
+    }
+
+    [Fact]
+    public void ExpiredLicense_ReturnsBoot0x14()
+    {
+        Assert.NotEqual(_manifest.LiveJwt, _manifest.ExpiredJwt);
+        UseJwt(_manifest.ExpiredJwt);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            Bootstrapper.Initialize(_manifest.TokenId));
+
+        Assert.Equal("boot-0x14", ex.Message);
+        Assert.Equal("boot-0x14", Bootstrapper.LastCheck.Code);
+    }
+
+    [Fact]
+    public void ReactivatedAfterDisable_ValidatesWhenCatalogRestored()
+    {
+        UseJwt(_manifest.DisabledJwt);
+        Assert.False(Bootstrapper.TryInitialize(_manifest.TokenId, out _));
+        Assert.Equal("boot-0x12", Bootstrapper.LastCheck.Code);
+
+        UseJwt(_manifest.LiveJwt);
+        var profile = Bootstrapper.Initialize(_manifest.TokenId);
+
+        Assert.Equal("boot-ok-remote", Bootstrapper.LastCheck.Code);
+        Assert.True(Bootstrapper.LastCheck.Success);
+        Assert.Equal(_manifest.TokenId, profile.TokenId);
+    }
+
+    [Fact]
+    public void DeletedToken_ReturnsBoot0x11()
+    {
+        UseJwt(_manifest.LiveJwt);
+        var emptyCatalogJwt = RunKeygenWrapEmptyCatalog();
+        UseJwt(emptyCatalogJwt);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            Bootstrapper.Initialize(_manifest.TokenId));
+
+        Assert.Equal("boot-0x11", ex.Message);
+    }
+
+    private string RunKeygenWrapEmptyCatalog()
+    {
+        var keygen = Path.GetFullPath(Path.Combine(FindFixturesRoot(), "..", "keygen", "SeedForge.csproj"));
+        var catalogFile = Path.Combine(Path.GetTempPath(), $"empty-catalog-{Guid.NewGuid():N}.json");
+        File.WriteAllText(catalogFile, "{\"entries\":[]}");
+        try
+        {
+            using var proc = Process.Start(new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments =
+                    $"run --project \"{keygen}\" -c Release --no-build -- wrapjwt \"{catalogFile}\" " +
+                    "\"test-jwt-signing-key-ops-runtime-seed-2026\" " +
+                    "\"test-envelope-pepper-ops-runtime-2026\" " +
+                    "\"https://mikzielinski.github.io/rpalicense\" " +
+                    "\"ops-runtime-seed\" " +
+                    "\"2027-12-31T23:59:59Z\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            })!;
+            var stdout = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit();
+            if (proc.ExitCode != 0)
+            {
+                throw new InvalidOperationException("wrapjwt empty catalog failed");
+            }
+
+            return stdout.Trim();
+        }
+        finally
+        {
+            try { File.Delete(catalogFile); } catch { /* ignore */ }
+        }
+    }
+
     private static string FindFixturesRoot()
     {
         var dir = AppContext.BaseDirectory;

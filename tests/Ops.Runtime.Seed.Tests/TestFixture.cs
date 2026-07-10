@@ -40,6 +40,9 @@ public sealed class FixtureManifest
 
     [JsonPropertyName("hostRestrictedJwt")]
     public string HostRestrictedJwt { get; init; } = string.Empty;
+
+    [JsonPropertyName("expiredJwt")]
+    public string ExpiredJwt { get; init; } = string.Empty;
 }
 
 public static class TestFixture

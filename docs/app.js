@@ -999,10 +999,12 @@ async function mutateLicense(tokenId, mode) {
 
     if (mode === "disable" && entry) {
       entry.enabled = false;
+      entry.seal = await signEntry(entry);
       appendAudit("disable", tokenId, "ok", "Licencja odcięta (lokalnie)");
     } else if (mode === "renew" && entry) {
       entry.enabled = true;
       entry.validToUtc = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+      entry.seal = await signEntry(entry);
       appendAudit("renew", tokenId, "ok", `Przedłużono lokalnie do ${entry.validToUtc}`);
     } else if (mode === "delete") {
       catalog.entries = catalog.entries.filter((e) => e.tokenId !== tokenId);
@@ -1038,8 +1040,14 @@ async function checkLiveStatus() {
   }
 
   try {
-    const jwt = await fetchText(state.settings.seedUrl);
-    const liveCatalog = await unwrapSeedJwt(jwt);
+    let liveCatalog;
+    if (usesApiPublish()) {
+      const meta = await fetchSeedForPublish();
+      liveCatalog = await unwrapSeedJwt(meta.text);
+    } else {
+      const jwt = await fetchText(state.settings.seedUrl);
+      liveCatalog = await unwrapSeedJwt(jwt);
+    }
     const result = await evaluateToken(liveCatalog, tokenId, machine);
     const text = JSON.stringify(result, null, 2);
     byId("checkResult").textContent = text;
@@ -1385,6 +1393,19 @@ function licenseStatus(entry) {
   return { label: "Aktywna", cls: "ok" };
 }
 
+function licenseActionButtons(entry) {
+  const st = licenseStatus(entry);
+  const buttons = [];
+  if (st.label === "Odcięta" || st.label === "Wygasła") {
+    buttons.push({ label: "Odnów", mode: "renew" });
+  }
+  if (st.label === "Aktywna") {
+    buttons.push({ label: "Odetnij", mode: "disable" });
+  }
+  buttons.push({ label: "Usuń", mode: "delete" });
+  return buttons;
+}
+
 function renderLicenseTable() {
   const tbody = byId("licenseTableBody");
   tbody.innerHTML = "";
@@ -1401,9 +1422,9 @@ function renderLicenseTable() {
       <td class="row-actions"></td>
     `;
     const actions = tr.querySelector(".row-actions");
-    actions.appendChild(actionBtn("Odnów", () => mutateLicense(e.tokenId, "renew")));
-    actions.appendChild(actionBtn("Odetnij", () => mutateLicense(e.tokenId, "disable")));
-    actions.appendChild(actionBtn("Usuń", () => mutateLicense(e.tokenId, "delete")));
+    for (const { label, mode } of licenseActionButtons(e)) {
+      actions.appendChild(actionBtn(label, () => mutateLicense(e.tokenId, mode)));
+    }
     tbody.appendChild(tr);
   }
 

@@ -46,11 +46,17 @@ $KEYGEN reseal "$FIXTURES/catalog/disabled-raw.json" "$KEYS/seal.private.pem" > 
 $KEYGEN wrapjwt "$FIXTURES/catalog/disabled.json" "$JWT_KEY" "$ENV_PEPPER" "$ISSUER" "$AUDIENCE" "$VALID_TO" \
   > "$FIXTURES/seed.disabled.jwt"
 
-echo "==> [5/5] Building host-restricted catalog + seed.jwt"
+echo "==> [5/6] Building host-restricted catalog + seed.jwt"
 jq '.entries[0].hosts = ["ROBOT01"]' "$FIXTURES/catalog/live.json" > "$FIXTURES/catalog/host-restricted-raw.json"
 $KEYGEN reseal "$FIXTURES/catalog/host-restricted-raw.json" "$KEYS/seal.private.pem" > "$FIXTURES/catalog/host-restricted.json"
 $KEYGEN wrapjwt "$FIXTURES/catalog/host-restricted.json" "$JWT_KEY" "$ENV_PEPPER" "$ISSUER" "$AUDIENCE" "$VALID_TO" \
   > "$FIXTURES/seed.host-restricted.jwt"
+
+echo "==> [6/6] Building expired catalog + seed.jwt"
+jq '.entries[0].validToUtc = "2020-01-01T00:00:00Z"' "$FIXTURES/catalog/live.json" > "$FIXTURES/catalog/expired-raw.json"
+$KEYGEN reseal "$FIXTURES/catalog/expired-raw.json" "$KEYS/seal.private.pem" > "$FIXTURES/catalog/expired.json"
+$KEYGEN wrapjwt "$FIXTURES/catalog/expired.json" "$JWT_KEY" "$ENV_PEPPER" "$ISSUER" "$AUDIENCE" "$VALID_TO" \
+  > "$FIXTURES/seed.expired.jwt"
 
 cp "$KEYS/seal.public.pem" "$FIXTURES/seal.public.pem"
 
@@ -67,6 +73,7 @@ jq -n \
   --arg liveJwt "$(cat "$FIXTURES/seed.live.jwt")" \
   --arg disabledJwt "$(cat "$FIXTURES/seed.disabled.jwt")" \
   --arg hostRestrictedJwt "$(cat "$FIXTURES/seed.host-restricted.jwt")" \
+  --arg expiredJwt "$(cat "$FIXTURES/seed.expired.jwt")" \
   --arg catalog "$(cat "$FIXTURES/catalog/live.json")" \
   '{
     sourceUrl: $sourceUrl,
@@ -81,13 +88,14 @@ jq -n \
     liveJwt: $liveJwt,
     disabledJwt: $disabledJwt,
     hostRestrictedJwt: $hostRestrictedJwt,
+    expiredJwt: $expiredJwt,
     catalog: ($catalog | fromjson)
   }' > "$FIXTURES/manifest.json"
 
 PAGES_ASSET="$ROOT/docs/assets/seed.jwt"
 mkdir -p "$(dirname "$PAGES_ASSET")"
 cp "$FIXTURES/seed.live.jwt" "$PAGES_ASSET"
-echo "==> [6/6] Published seed.jwt for GitHub Pages -> docs/assets/seed.jwt"
+echo "==> [7/7] Published seed.jwt for GitHub Pages -> docs/assets/seed.jwt"
 
 echo ""
 echo "Fixtures generated:"
@@ -97,4 +105,5 @@ echo "  live catalog:  $FIXTURES/catalog/live.json"
 echo "  live JWT:      $FIXTURES/seed.live.jwt"
 echo "  pages JWT:     $PAGES_ASSET"
 echo "  disabled JWT:  $FIXTURES/seed.disabled.jwt"
+echo "  expired JWT:   $FIXTURES/seed.expired.jwt"
 echo "  manifest:      $FIXTURES/manifest.json"
