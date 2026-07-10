@@ -6,4 +6,7 @@
     <RootNamespace>Ops.License.Api</RootNamespace>
     <AssemblyName>Ops.License.Api</AssemblyName>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ops.Runtime.Seed\Ops.Runtime.Seed.csproj" />
+  </ItemGroup>
 </Project>

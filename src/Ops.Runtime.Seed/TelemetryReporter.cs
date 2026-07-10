@@ -46,7 +46,11 @@ internal static class TelemetryReporter
         {
             try
             {
-                if (!string.IsNullOrWhiteSpace(BootstrapperSettings.TelemetryApiUrl))
+                if (!string.IsNullOrWhiteSpace(BootstrapperSettings.ApiUrl))
+                {
+                    await ApiLicenseClient.TryReportTelemetryAsync(snapshot).ConfigureAwait(false);
+                }
+                else if (!string.IsNullOrWhiteSpace(BootstrapperSettings.TelemetryApiUrl))
                 {
                     await ReportToLicenseApiAsync(snapshot).ConfigureAwait(false);
                 }

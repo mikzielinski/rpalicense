@@ -12,7 +12,9 @@ const state = {
   settings: {},
   defaults: {},
   dirty: false,
-  liveLoadedAt: null
+  liveLoadedAt: null,
+  operatorSession: null,
+  operatorSessionExp: 0
 };
 
 init();
@@ -46,7 +48,7 @@ function defaultSettings() {
     ghRobotEventsPath: state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
     seedUrl: state.defaults.seedUrl ?? "",
     apiBaseUrl: state.defaults.apiBaseUrl ?? "",
-    apiKey: "",
+    operatorSecret: "",
     pepper: "test-pepper-ops-runtime-seed-2026",
     envelopePepper: "test-envelope-pepper-ops-runtime-2026",
     jwtSigningKey: "test-jwt-signing-key-ops-runtime-seed-2026",
@@ -69,7 +71,7 @@ function loadSettings() {
 
 function saveSettingsFromForm() {
   const tokenInput = byId("cfgGhToken").value.trim();
-  const apiKeyInput = byId("cfgApiKey").value.trim();
+  const operatorSecretInput = byId("cfgOperatorSecret").value.trim();
   const previous = state.settings ?? {};
   state.settings = {
     operatorName: byId("cfgOperator").value.trim(),
@@ -81,7 +83,7 @@ function saveSettingsFromForm() {
     ghRobotEventsPath: previous.ghRobotEventsPath ?? state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
     seedUrl: byId("cfgSeedUrl").value.trim(),
     apiBaseUrl: byId("cfgApiBaseUrl").value.trim(),
-    apiKey: apiKeyInput || previous.apiKey || "",
+    operatorSecret: operatorSecretInput || previous.operatorSecret || previous.apiKey || "",
     ghToken: tokenInput || previous.ghToken || "",
     pepper: byId("cfgPepper").value,
     envelopePepper: byId("cfgEnvelopePepper").value,
@@ -101,7 +103,7 @@ function applySettingsToForm() {
   byId("cfgGhBranch").value = s.ghBranch ?? "main";
   byId("cfgSeedUrl").value = s.seedUrl ?? "";
   byId("cfgApiBaseUrl").value = s.apiBaseUrl ?? "";
-  byId("cfgApiKey").value = s.apiKey ?? "";
+  byId("cfgOperatorSecret").value = s.operatorSecret ?? s.apiKey ?? "";
   byId("cfgGhToken").value = s.ghToken ?? "";
   byId("cfgPepper").value = s.pepper ?? "";
   byId("cfgEnvelopePepper").value = s.envelopePepper ?? "";
@@ -152,7 +154,7 @@ function settingsReady() {
 
 function usesApiPublish() {
   const s = state.settings;
-  return Boolean(s.apiBaseUrl?.trim() && s.apiKey?.trim());
+  return Boolean(s.apiBaseUrl?.trim() && (s.operatorSecret?.trim() || s.apiKey?.trim()));
 }
 
 function usesActionsDispatch() {
@@ -162,7 +164,7 @@ function usesActionsDispatch() {
     s.ghOwner?.trim() &&
     s.ghRepo?.trim() &&
     s.ghToken?.trim() &&
-    s.apiKey?.trim()
+    (s.operatorSecret?.trim() || s.apiKey?.trim())
   );
 }
 
@@ -179,12 +181,12 @@ function publishReady() {
   if (!s.sealJwk) missing.push("JWK RSA");
   if (usesApiPublish()) {
     if (!s.apiBaseUrl) missing.push("URL API");
-    if (!s.apiKey) missing.push("Klucz API");
+    if (!s.operatorSecret && !s.apiKey) missing.push("Sekret operatora");
   } else if (usesActionsDispatch()) {
     if (!s.ghOwner) missing.push("GitHub owner");
     if (!s.ghRepo) missing.push("GitHub repo");
     if (!s.ghToken) missing.push("GitHub token (dispatch)");
-    if (!s.apiKey) missing.push("Klucz operatora (repo secret)");
+    if (!s.operatorSecret && !s.apiKey) missing.push("Klucz operatora (repo secret)");
   } else {
     if (!s.ghOwner) missing.push("GitHub owner");
     if (!s.ghRepo) missing.push("GitHub repo");
@@ -223,7 +225,11 @@ async function refreshFromLive(manual = false) {
   }
 
   try {
-    await refreshCatalogFromPages();
+    if (usesApiPublish()) {
+      await syncCatalogFromServer();
+    } else {
+      await refreshCatalogFromPages();
+    }
     setHeader(`Załadowano ${catalog.entries.length} licencji z serwera (${state.liveLoadedAt.toLocaleString()}).`, "ok");
     if (manual) {
       appendAudit("refresh", null, "ok", "Odświeżono katalog z Pages");
@@ -237,6 +243,16 @@ async function refreshFromLive(manual = false) {
 }
 
 async function loadAuditLogFromServer() {
+  if (usesApiPublish()) {
+    try {
+      const json = await apiRequest("/v1/audit", "GET");
+      auditLog = Array.isArray(json.entries) ? json.entries : [];
+    } catch {
+      auditLog = auditLog.length ? auditLog : [];
+    }
+    return;
+  }
+
   const url = auditLogPublicUrl();
   if (!url) return;
   try {
@@ -261,6 +277,16 @@ function robotEventsPublicUrl() {
 }
 
 async function loadRobotEventsFromServer() {
+  if (usesApiPublish()) {
+    try {
+      const json = await apiRequest("/v1/robot-events", "GET");
+      robotEvents = Array.isArray(json.entries) ? json.entries : [];
+    } catch {
+      robotEvents = robotEvents.length ? robotEvents : [];
+    }
+    return;
+  }
+
   const url = robotEventsPublicUrl();
   if (!url) return;
   try {
@@ -276,16 +302,109 @@ function apiBaseUrl() {
   return (state.settings.apiBaseUrl ?? "").trim().replace(/\/$/, "");
 }
 
-async function apiRequest(path, method, body = null) {
+function operatorSecret() {
+  return (state.settings.operatorSecret ?? state.settings.apiKey ?? "").trim();
+}
+
+function parseSessionExp(sessionToken) {
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(sessionToken.split(".")[0])));
+    return payload.exp ? payload.exp * 1000 : Date.now() + 25 * 60 * 1000;
+  } catch {
+    return Date.now() + 25 * 60 * 1000;
+  }
+}
+
+async function apiPostPublic(path, body) {
   const base = apiBaseUrl();
-  const key = state.settings.apiKey?.trim();
-  if (!base || !key) {
-    throw new Error("Brak URL API lub klucza API.");
+  if (!base) throw new Error("Brak URL API.");
+
+  let resp;
+  try {
+    resp = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    throw new Error(
+      error?.message === "Failed to fetch"
+        ? `Nie można połączyć z API (${base}). Sprawdź URL, CORS i czy serwer działa.`
+        : error.message
+    );
   }
 
+  const text = await resp.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!resp.ok) {
+    const msg = json?.error ?? json?.message ?? text?.slice(0, 300) ?? resp.statusText;
+    throw new Error(`API ${resp.status}: ${msg}`);
+  }
+
+  return json ?? {};
+}
+
+async function computeOperatorProof(operatorSecretValue, challengeId, serverNonce, clientNonce, operatorId) {
+  const keyBytes = await deriveSha256Key(operatorSecretValue);
+  const message = `${challengeId}|${serverNonce}|${clientNonce}|${operatorId}|${operatorId}`;
+  return hmacSha256RawKeyBase64Url(keyBytes, message);
+}
+
+async function createOperatorSession() {
+  const operatorId = operatorWho();
+  const secret = operatorSecret();
+  if (!secret) throw new Error("Brak sekretu operatora.");
+
+  const challenge = await apiPostPublic("/v1/operator/challenge", { operatorId });
+  const clientNonce = toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
+  const proof = await computeOperatorProof(
+    secret,
+    challenge.challengeId,
+    challenge.serverNonce,
+    clientNonce,
+    operatorId
+  );
+  const session = await apiPostPublic("/v1/operator/session", {
+    operatorId,
+    challengeId: challenge.challengeId,
+    clientNonce,
+    proof
+  });
+
+  if (!session.sessionToken) {
+    throw new Error("API nie zwróciło sesji operatora.");
+  }
+
+  state.operatorSession = session.sessionToken;
+  state.operatorSessionExp = parseSessionExp(session.sessionToken);
+  return session.sessionToken;
+}
+
+async function ensureOperatorSession() {
+  const now = Date.now();
+  if (state.operatorSession && state.operatorSessionExp > now + 60_000) {
+    return state.operatorSession;
+  }
+  return createOperatorSession();
+}
+
+async function apiRequest(path, method, body = null, retried = false) {
+  const base = apiBaseUrl();
+  const secret = operatorSecret();
+  if (!base || !secret) {
+    throw new Error("Brak URL API lub sekretu operatora.");
+  }
+
+  const session = await ensureOperatorSession();
   const headers = {
     Accept: "application/json",
-    "X-Api-Key": key
+    Authorization: `Bearer ${session}`
   };
   if (body) headers["Content-Type"] = "application/json";
 
@@ -312,9 +431,15 @@ async function apiRequest(path, method, body = null) {
     json = null;
   }
 
+  if (resp.status === 401 && !retried) {
+    state.operatorSession = null;
+    state.operatorSessionExp = 0;
+    return apiRequest(path, method, body, true);
+  }
+
   if (!resp.ok) {
     const msg = json?.error ?? json?.message ?? text?.slice(0, 300) ?? resp.statusText;
-    if (resp.status === 401) throw new Error(`API 401 — nieprawidłowy klucz API: ${msg}`);
+    if (resp.status === 401) throw new Error(`API 401 — nieprawidłowy sekret operatora: ${msg}`);
     if (resp.status === 403) throw new Error(`API 403 — brak uprawnień: ${msg}`);
     throw new Error(`API ${resp.status}: ${msg}`);
   }
@@ -324,8 +449,8 @@ async function apiRequest(path, method, body = null) {
 
 async function fetchSeedForPublish() {
   if (usesApiPublish()) {
-    const json = await apiRequest("/v1/seed", "GET");
-    return { sha: json.sha, text: json.jwt ?? "" };
+    const json = await apiRequest("/v1/catalog", "GET");
+    return { sha: null, text: json.jwt ?? "" };
   }
   if (usesActionsDispatch()) {
     const jwt = await fetchText(state.settings.seedUrl);
@@ -428,7 +553,7 @@ async function publishAllViaApi(options = {}) {
   setStatus("publishStatus", "Publikuję seed.jwt przez API…", "");
   await resealAllEntries();
   const jwt = await buildSeedJwt(catalog);
-  const seedResult = await apiRequest("/v1/seed/publish", "POST", {
+  const seedResult = await apiRequest("/v1/catalog/publish", "POST", {
     jwt,
     message: options.commitMessage ?? "Update seed.jwt (panel)"
   });
@@ -436,7 +561,7 @@ async function publishAllViaApi(options = {}) {
   if (mutation) {
     appendAuditForMutation(mutation);
   }
-  appendAudit("publish", null, "ok", `seed.jwt → ${String(seedResult.sha ?? "ok").slice(0, 7)}`);
+  appendAudit("publish", null, "ok", `seed.jwt → ${String(seedResult.revision ?? "ok").slice(0, 7)}`);
 
   try {
     await apiRequest("/v1/audit", "POST", { entries: auditLog.slice(0, 500) });
@@ -445,7 +570,7 @@ async function publishAllViaApi(options = {}) {
   }
 
   state.dirty = false;
-  const msg = `Opublikowano przez API (commit ${String(seedResult.sha ?? "?").slice(0, 7)}). Pages za ~1–2 min.`;
+  const msg = `Opublikowano przez API (rev ${String(seedResult.revision ?? "?").slice(0, 7)}). Pages za ~1–2 min.`;
   setStatus("publishStatus", msg, "ok");
   setHeader(`Opublikowano ${catalog.entries.length} licencji na serwerze.`, "ok");
   renderAll();
@@ -689,13 +814,15 @@ async function loadTestJwk() {
 async function testPublishConnection() {
   saveSettingsFromForm();
   if (usesApiPublish()) {
-    setStatus("settingsStatus", "Testuję połączenie z API…", "");
+    setStatus("settingsStatus", "Testuję połączenie z API (handshake)…", "");
     try {
-      const health = await apiRequest("/health", "GET");
-      await apiRequest("/v1/seed", "GET");
+      const healthResp = await fetch(`${apiBaseUrl()}/health`, { headers: { Accept: "application/json" } });
+      const health = healthResp.ok ? await healthResp.json() : { status: "?" };
+      await ensureOperatorSession();
+      await apiRequest("/v1/catalog", "GET");
       setStatus(
         "settingsStatus",
-        `OK: API działa (${apiBaseUrl()}), status: ${health.status ?? "ok"}.`,
+        `OK: API działa (${apiBaseUrl()}), handshake operatora OK, status: ${health?.status ?? "ok"}.`,
         "ok"
       );
     } catch (error) {
@@ -1490,6 +1617,18 @@ async function decryptAesGcm(rawKeyBytes, cipher, nonce, tag) {
   merged.set(tag, cipher.length);
   const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, merged);
   return new TextDecoder().decode(plain);
+}
+
+async function hmacSha256RawKeyBase64Url(rawKeyBytes, message) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    rawKeyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return toBase64Url(new Uint8Array(sig));
 }
 
 async function hmacSha256Base64Url(secret, message) {

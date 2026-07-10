@@ -41,6 +41,7 @@ internal static class BootstrapperSettings
     internal static string? DispatchGitHubToken { get; set; }
     internal static string DispatchGitHubOwner { get; set; } = "mikzielinski";
     internal static string DispatchGitHubRepo { get; set; } = "rpalicense";
+    internal static string? ApiUrl { get; set; }
     internal static string? CachePathOverride { get; set; }
     internal static Func<string, Task<string>>? CatalogLoaderOverride { get; set; }
 
@@ -69,6 +70,7 @@ internal static class BootstrapperSettings
         DispatchGitHubToken = null;
         DispatchGitHubOwner = "mikzielinski";
         DispatchGitHubRepo = "rpalicense";
+        ApiUrl = null;
         CachePathOverride = null;
         CatalogLoaderOverride = null;
     }
@@ -142,6 +144,7 @@ internal static class BootstrapperSettings
         DispatchGitHubRepo = ReadEnv("OPS_SEED_DISPATCH_REPO")
             ?? ReadEnv("OPS_SEED_TELEMETRY_REPO")
             ?? DispatchGitHubRepo;
+        ApiUrl = ReadEnv("OPS_SEED_API_URL") ?? ReadEnv("OPS_LICENSE_API_URL");
     }
 
     private static string? ReadEnv(string name)

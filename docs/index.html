@@ -40,14 +40,14 @@
         <label>URL seed.jwt (live)
           <input id="cfgSeedUrl" type="url">
         </label>
-        <label>URL API (opcjonalnie — własny serwer)
-          <input id="cfgApiBaseUrl" type="url" placeholder="puste = GitHub Actions + Pages">
+        <label>URL API (zalecane — własny serwer)
+          <input id="cfgApiBaseUrl" type="url" placeholder="https://license.example.com">
         </label>
-        <label>Klucz operatora (repo secret)
-          <input id="cfgApiKey" type="password" placeholder="OPS_API_OPERATOR_KEY z GitHub Secrets">
+        <label>Sekret operatora (handshake)
+          <input id="cfgOperatorSecret" type="password" placeholder="OPS_OPERATOR_SECRET — ten sam co na serwerze">
         </label>
-        <label>GitHub token (dispatch Actions)
-          <input id="cfgGhToken" type="password" placeholder="tylko repo — uruchamia workflow">
+        <label>GitHub token (legacy — tylko Actions dispatch)
+          <input id="cfgGhToken" type="password" placeholder="opcjonalnie — uruchamia workflow">
         </label>
         <label>Pepper (szyfrowanie payload)
           <input id="cfgPepper" type="password">
@@ -96,7 +96,7 @@
           <tbody id="licenseTableBody"></tbody>
         </table>
       </div>
-      <p id="publishStatus" class="status">Zalecane: GitHub Actions + Pages (token dispatch + klucz z repo Secrets). Bez osobnego serwera.</p>
+      <p id="publishStatus" class="status">Zalecane: URL API + sekret operatora (handshake). Serwer trzyma token GitHub — panel i roboty go nie widzą.</p>
     </section>
 
     <section class="card">

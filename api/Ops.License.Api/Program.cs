@@ -1,4 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Ops.License.Api;
+using UiPath.System.RoboticSecurity;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,13 +11,15 @@ githubOptions.Token = FirstNonEmpty(
     Environment.GetEnvironmentVariable("OPS_GITHUB_TOKEN"),
     githubOptions.Token) ?? string.Empty;
 
-var apiKeyOptions = builder.Configuration.GetSection(ApiKeyOptions.SectionName).Get<ApiKeyOptions>() ?? new ApiKeyOptions();
-apiKeyOptions.Operator = FirstNonEmpty(
-    Environment.GetEnvironmentVariable("OPS_API_OPERATOR_KEY"),
-    apiKeyOptions.Operator) ?? string.Empty;
-apiKeyOptions.Robot = FirstNonEmpty(
-    Environment.GetEnvironmentVariable("OPS_API_ROBOT_KEY"),
-    apiKeyOptions.Robot) ?? string.Empty;
+var serverSettings = builder.Configuration.GetSection(ServerSettings.SectionName).Get<ServerSettings>() ?? new ServerSettings();
+serverSettings.Pepper = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SEED_PEPPER"), serverSettings.Pepper) ?? serverSettings.Pepper;
+serverSettings.EnvelopePepper = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SEED_ENVELOPE_PEPPER"), serverSettings.EnvelopePepper) ?? serverSettings.EnvelopePepper;
+serverSettings.EnvelopeSigningKey = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SEED_ENVELOPE_SIGNING_KEY"), serverSettings.EnvelopeSigningKey) ?? serverSettings.EnvelopeSigningKey;
+serverSettings.EnvelopeIssuer = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SEED_ENVELOPE_ISSUER"), serverSettings.EnvelopeIssuer) ?? serverSettings.EnvelopeIssuer;
+serverSettings.EnvelopeAudience = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SEED_ENVELOPE_AUDIENCE"), serverSettings.EnvelopeAudience) ?? serverSettings.EnvelopeAudience;
+serverSettings.PublicSealKeyPem = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SEED_PUBLIC_SEAL_KEY_PEM"), serverSettings.PublicSealKeyPem) ?? serverSettings.PublicSealKeyPem;
+serverSettings.OperatorSecret = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_OPERATOR_SECRET"), serverSettings.OperatorSecret) ?? string.Empty;
+serverSettings.SessionSigningKey = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SESSION_SIGNING_KEY"), serverSettings.SessionSigningKey) ?? string.Empty;
 
 var corsOptions = builder.Configuration.GetSection(CorsOptions.SectionName).Get<CorsOptions>() ?? new CorsOptions();
 var allowedOrigins = corsOptions.AllowedOrigins.Length > 0
@@ -22,7 +27,10 @@ var allowedOrigins = corsOptions.AllowedOrigins.Length > 0
     : new[] { "https://mikzielinski.github.io" };
 
 builder.Services.AddSingleton(githubOptions);
-builder.Services.AddSingleton(apiKeyOptions);
+builder.Services.AddSingleton(serverSettings);
+builder.Services.AddSingleton<HandshakeService>();
+builder.Services.AddSingleton<SessionTokenService>();
+builder.Services.AddSingleton<CatalogService>();
 builder.Services.AddHttpClient<GitHubContentsClient>();
 builder.Services.AddCors(options =>
 {
@@ -38,63 +46,116 @@ var app = builder.Build();
 
 if (string.IsNullOrWhiteSpace(githubOptions.Token))
 {
-    app.Logger.LogWarning("GITHUB_TOKEN is not configured — publish endpoints will fail.");
+    app.Logger.LogWarning("GITHUB_TOKEN is not configured — catalog publish will fail.");
 }
 
-if (string.IsNullOrWhiteSpace(apiKeyOptions.Operator) && string.IsNullOrWhiteSpace(apiKeyOptions.Robot))
+if (string.IsNullOrWhiteSpace(serverSettings.OperatorSecret))
 {
-    app.Logger.LogWarning("OPS_API_OPERATOR_KEY / OPS_API_ROBOT_KEY are not configured — all API calls will be rejected.");
+    app.Logger.LogWarning("OPS_OPERATOR_SECRET is not configured — operator endpoints will fail.");
+}
+
+if (string.IsNullOrWhiteSpace(serverSettings.SessionSigningKey))
+{
+    app.Logger.LogWarning("OPS_SESSION_SIGNING_KEY is not configured — session tokens will fail.");
 }
 
 app.UseCors();
-app.UseMiddleware<ApiKeyAuthMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
-app.MapGet("/v1/seed", async (GitHubContentsClient github, GitHubOptions options, CancellationToken ct) =>
+app.MapPost("/v1/runtime/challenge", (RuntimeChallengeRequest request, HandshakeService handshake) =>
 {
-    var meta = await github.GetFileAsync(options.SeedPath, ct).ConfigureAwait(false);
-    return Results.Ok(new { sha = meta.Sha, jwt = meta.Text.Trim() });
-});
-
-app.MapPost("/v1/seed/publish", async (SeedPublishRequest request, GitHubContentsClient github, GitHubOptions options, CancellationToken ct) =>
-{
-    if (string.IsNullOrWhiteSpace(request.Jwt))
+    var machine = (request.Machine ?? string.Empty).Trim().ToUpperInvariant();
+    if (string.IsNullOrWhiteSpace(machine))
     {
-        return Results.BadRequest(new { error = "jwt_required" });
+        return Results.BadRequest(new { error = "machine_required" });
     }
 
-    var jwt = request.Jwt.Trim();
-    if (!jwt.StartsWith("eyJ", StringComparison.Ordinal))
+    var challenge = handshake.CreateRuntimeChallenge(machine);
+    return Results.Ok(new ChallengeResponse
     {
-        return Results.BadRequest(new { error = "invalid_jwt" });
+        ChallengeId = challenge.ChallengeId,
+        ServerNonce = challenge.ServerNonce,
+        ExpiresAt = challenge.ExpiresAt.ToString("O")
+    });
+});
+
+app.MapPost("/v1/runtime/authorize", async (
+    RuntimeAuthorizeRequest request,
+    HandshakeService handshake,
+    CatalogService catalog,
+    SessionTokenService sessions,
+    ServerSettings settings,
+    CancellationToken ct) =>
+{
+    var machine = (request.Machine ?? string.Empty).Trim().ToUpperInvariant();
+    var tokenId = (request.TokenId ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(tokenId) || string.IsNullOrWhiteSpace(machine))
+    {
+        return Results.BadRequest(new { success = false, code = "boot-0x01" });
     }
 
-    var message = string.IsNullOrWhiteSpace(request.Message) ? "Update seed.jwt (api)" : request.Message.Trim();
-    var result = await github.PublishTextFileAsync(options.SeedPath, $"{jwt}\n", message, ct).ConfigureAwait(false);
-    return Results.Ok(new { ok = true, sha = result.Sha });
+    if (!handshake.TryConsumeRuntimeChallenge(request.ChallengeId ?? string.Empty, out var challenge) ||
+        !string.Equals(challenge.Subject, machine, StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(new AuthorizeResponse { Success = false, Code = "boot-0x63" });
+    }
+
+    if (!HandshakeProof.VerifyRuntimeProof(
+            tokenId,
+            settings.Pepper,
+            request.ChallengeId ?? string.Empty,
+            challenge.ServerNonce,
+            request.ClientNonce ?? string.Empty,
+            machine,
+            tokenId,
+            request.Proof ?? string.Empty))
+    {
+        return Results.Json(new AuthorizeResponse { Success = false, Code = "boot-0x65" });
+    }
+
+    try
+    {
+        var catalogDoc = await catalog.GetCatalogAsync(ct).ConfigureAwait(false);
+        var key = Crypto.DeriveAesKey(tokenId, settings.Pepper);
+        var entry = LicenseCatalog.ResolveEntry(catalogDoc, tokenId, machine);
+        var profile = LicenseCatalog.MaterializeProfile(entry, tokenId, key);
+        var sessionToken = sessions.IssueRuntime(tokenId, machine);
+        return Results.Json(new AuthorizeResponse
+        {
+            Success = true,
+            Code = "boot-ok-remote",
+            SessionToken = sessionToken,
+            Profile = profile
+        });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Json(new AuthorizeResponse { Success = false, Code = ex.Message });
+    }
+    catch (System.Security.Cryptography.CryptographicException ex)
+    {
+        return Results.Json(new AuthorizeResponse { Success = false, Code = ex.Message });
+    }
 });
 
-app.MapPost("/v1/audit", async (AuditReplaceRequest request, GitHubContentsClient github, GitHubOptions options, CancellationToken ct) =>
+app.MapPost("/v1/runtime/telemetry", async (
+    HttpRequest httpRequest,
+    TelemetryAppendRequest request,
+    SessionTokenService sessions,
+    GitHubContentsClient github,
+    GitHubOptions githubOptions,
+    CancellationToken ct) =>
 {
-    var body = new EntriesDocument<AuditEntryDto>
+    if (!SessionAuth.RequireRuntime(httpRequest, sessions, out var claims))
     {
-        Entries = request.Entries.Take(500).ToList()
-    };
-    var json = System.Text.Json.JsonSerializer.Serialize(body, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    }) + "\n";
+        return Results.Unauthorized();
+    }
 
-    var result = await github.PublishTextFileAsync(options.AuditPath, json, "Update audit-log.json (api)", ct).ConfigureAwait(false);
-    return Results.Ok(new { ok = true, sha = result.Sha, count = body.Entries.Count });
-});
-
-app.MapPost("/v1/telemetry", async (TelemetryAppendRequest request, GitHubContentsClient github, GitHubOptions options, CancellationToken ct) =>
-{
-    if (string.IsNullOrWhiteSpace(request.TokenId))
+    if (!string.Equals(claims.TokenId, request.TokenId, StringComparison.Ordinal) ||
+        !string.Equals(claims.Machine, request.Machine, StringComparison.OrdinalIgnoreCase))
     {
-        return Results.BadRequest(new { error = "tokenId_required" });
+        return Results.Forbid();
     }
 
     var entry = new TelemetryAppendRequest
@@ -111,7 +172,7 @@ app.MapPost("/v1/telemetry", async (TelemetryAppendRequest request, GitHubConten
     };
 
     var result = await github.AppendJsonEntryAsync<TelemetryAppendRequest, EntriesDocument<TelemetryAppendRequest>>(
-        options.RobotEventsPath,
+        githubOptions.RobotEventsPath,
         entry,
         () => new EntriesDocument<TelemetryAppendRequest>(),
         doc => doc.Entries,
@@ -119,7 +180,168 @@ app.MapPost("/v1/telemetry", async (TelemetryAppendRequest request, GitHubConten
         $"robot-check {entry.TokenId} {entry.Code}",
         cancellationToken: ct).ConfigureAwait(false);
 
-    return Results.Ok(new { ok = true, sha = result.Sha });
+    return Results.Ok(new { ok = true, revision = result.Sha });
+});
+
+app.MapPost("/v1/operator/challenge", (OperatorChallengeRequest request, HandshakeService handshake) =>
+{
+    var operatorId = (request.OperatorId ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(operatorId))
+    {
+        return Results.BadRequest(new { error = "operatorId_required" });
+    }
+
+    var challenge = handshake.CreateOperatorChallenge(operatorId);
+    return Results.Ok(new ChallengeResponse
+    {
+        ChallengeId = challenge.ChallengeId,
+        ServerNonce = challenge.ServerNonce,
+        ExpiresAt = challenge.ExpiresAt.ToString("O")
+    });
+});
+
+app.MapPost("/v1/operator/session", (
+    OperatorSessionRequest request,
+    HandshakeService handshake,
+    SessionTokenService sessions,
+    ServerSettings settings) =>
+{
+    var operatorId = (request.OperatorId ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(operatorId) || string.IsNullOrWhiteSpace(settings.OperatorSecret))
+    {
+        return Results.BadRequest(new { error = "invalid_request" });
+    }
+
+    if (!handshake.TryConsumeOperatorChallenge(request.ChallengeId ?? string.Empty, out var challenge) ||
+        !string.Equals(challenge.Subject, operatorId, StringComparison.Ordinal))
+    {
+        return Results.Json(new { error = "invalid_challenge" }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    if (!HandshakeProof.VerifyOperatorProof(
+            settings.OperatorSecret,
+            request.ChallengeId ?? string.Empty,
+            challenge.ServerNonce,
+            request.ClientNonce ?? string.Empty,
+            operatorId,
+            request.Proof ?? string.Empty))
+    {
+        return Results.Json(new { error = "invalid_proof" }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var sessionToken = sessions.IssueOperator(operatorId);
+    return Results.Ok(new { sessionToken });
+});
+
+app.MapGet("/v1/catalog", async (HttpRequest httpRequest, SessionTokenService sessions, CatalogService catalog, CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireOperator(httpRequest, sessions, out _))
+    {
+        return Results.Unauthorized();
+    }
+
+    var jwt = await catalog.GetSeedJwtAsync(ct).ConfigureAwait(false);
+    return Results.Ok(new { jwt });
+});
+
+app.MapPost("/v1/catalog/publish", async (
+    HttpRequest httpRequest,
+    SeedPublishRequest request,
+    SessionTokenService sessions,
+    CatalogService catalog,
+    CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireOperator(httpRequest, sessions, out _))
+    {
+        return Results.Unauthorized();
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Jwt))
+    {
+        return Results.BadRequest(new { error = "jwt_required" });
+    }
+
+    var jwt = request.Jwt.Trim();
+    if (!jwt.StartsWith("eyJ", StringComparison.Ordinal))
+    {
+        return Results.BadRequest(new { error = "invalid_jwt" });
+    }
+
+    var message = string.IsNullOrWhiteSpace(request.Message) ? "Update seed.jwt (api)" : request.Message.Trim();
+    var result = await catalog.PublishSeedJwtAsync(jwt, message, ct).ConfigureAwait(false);
+    return Results.Ok(new { ok = true, revision = result.Sha });
+});
+
+app.MapGet("/v1/audit", async (
+    HttpRequest httpRequest,
+    SessionTokenService sessions,
+    GitHubContentsClient github,
+    GitHubOptions options,
+    CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireOperator(httpRequest, sessions, out _))
+    {
+        return Results.Unauthorized();
+    }
+
+    try
+    {
+        var meta = await github.GetFileAsync(options.AuditPath, ct).ConfigureAwait(false);
+        var doc = JsonSerializer.Deserialize<EntriesDocument<AuditEntryDto>>(meta.Text, JsonDefaults.Web)
+                  ?? new EntriesDocument<AuditEntryDto>();
+        return Results.Ok(doc);
+    }
+    catch (FileNotFoundException)
+    {
+        return Results.Ok(new EntriesDocument<AuditEntryDto>());
+    }
+});
+
+app.MapPost("/v1/audit", async (
+    HttpRequest httpRequest,
+    AuditReplaceRequest request,
+    SessionTokenService sessions,
+    GitHubContentsClient github,
+    GitHubOptions options,
+    CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireOperator(httpRequest, sessions, out _))
+    {
+        return Results.Unauthorized();
+    }
+
+    var body = new EntriesDocument<AuditEntryDto>
+    {
+        Entries = request.Entries.Take(500).ToList()
+    };
+    var json = JsonSerializer.Serialize(body, JsonDefaults.Web) + "\n";
+    var result = await github.PublishTextFileAsync(options.AuditPath, json, "Update audit-log.json (api)", ct).ConfigureAwait(false);
+    return Results.Ok(new { ok = true, revision = result.Sha, count = body.Entries.Count });
+});
+
+app.MapGet("/v1/robot-events", async (
+    HttpRequest httpRequest,
+    SessionTokenService sessions,
+    GitHubContentsClient github,
+    GitHubOptions options,
+    CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireOperator(httpRequest, sessions, out _))
+    {
+        return Results.Unauthorized();
+    }
+
+    try
+    {
+        var meta = await github.GetFileAsync(options.RobotEventsPath, ct).ConfigureAwait(false);
+        var doc = JsonSerializer.Deserialize<EntriesDocument<TelemetryAppendRequest>>(meta.Text, JsonDefaults.Web)
+                  ?? new EntriesDocument<TelemetryAppendRequest>();
+        return Results.Ok(doc);
+    }
+    catch (FileNotFoundException)
+    {
+        return Results.Ok(new EntriesDocument<TelemetryAppendRequest>());
+    }
 });
 
 app.Run();
@@ -135,4 +357,12 @@ static string? FirstNonEmpty(params string?[] values)
     }
 
     return null;
+}
+
+internal static class JsonDefaults
+{
+    internal static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 }
