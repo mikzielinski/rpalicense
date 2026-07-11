@@ -6,5 +6,13 @@
   "jwtSigningKey": "test-jwt-signing-key-ops-runtime-seed-2026",
   "issuer": "https://mikzielinski.github.io/rpalicense",
   "audience": "ops-runtime-seed",
-  "sealJwkUrl": "https://raw.githubusercontent.com/mikzielinski/rpalicense/main/test-fixtures/keys/seal.private.jwk"
+  "sealJwkUrl": "https://raw.githubusercontent.com/mikzielinski/rpalicense/main/test-fixtures/keys/seal.private.jwk",
+  "nugetVersion": "1.0.7",
+  "nugetPackageUrl": "./assets/nuget/UiPath.System.RoboticSecurity.1.0.7.nupkg",
+  "nugetDllUrl": "./assets/lib/UiPath.System.RoboticSecurity.dll",
+  "robotPackage": {
+    "graceDays": 7,
+    "telemetry": true,
+    "killOnDeny": true
+  }
 }

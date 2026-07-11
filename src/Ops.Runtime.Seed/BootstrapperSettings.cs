@@ -149,6 +149,12 @@ internal static class BootstrapperSettings
         {
             ApiUrl = apiUrl;
         }
+
+        var graceEnv = ReadEnv("OPS_SEED_GRACE_DAYS");
+        if (graceEnv is not null && int.TryParse(graceEnv, out var graceDays) && graceDays > 0)
+        {
+            GraceDays = graceDays;
+        }
     }
 
     private static string? ReadEnv(string name)

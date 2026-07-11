@@ -113,6 +113,7 @@ async function enterApp() {
     await refreshAccountsTable();
     await loadOAuthSetup();
   }
+  initRobotPackageConfigurator();
 }
 
 function showLoginScreen() {
@@ -264,6 +265,7 @@ function bindUi() {
   byId("btnCreateAccount").addEventListener("click", createPanelAccount);
   byId("btnLinkOAuth").addEventListener("click", linkPanelAccountOAuth);
   byId("btnSaveOAuthSetup").addEventListener("click", saveOAuthSetup);
+  byId("btnDownloadRobotPackage").addEventListener("click", downloadSelectedRobotPackages);
   byId("btnClearLocalLog").addEventListener("click", () => {
     auditLog = [];
     renderAuditTable();
@@ -1582,6 +1584,290 @@ function licenseActionButtons(entry) {
   return buttons;
 }
 
+function updateRobotDownloadButton() {
+  const picked = document.querySelectorAll(".license-pick:checked").length;
+  byId("btnDownloadRobotPackage").disabled = picked === 0;
+}
+
+function robotPackageDefaults() {
+  const pkg = state.defaults.robotPackage ?? {};
+  return {
+    apiUrl: state.defaults.apiBaseUrl ?? state.settings.apiBaseUrl ?? "",
+    pepper: state.defaults.pepper ?? state.settings.pepper ?? "",
+    nugetUrl: state.defaults.nugetPackageUrl ?? "./assets/nuget/UiPath.System.RoboticSecurity.1.0.7.nupkg",
+    dllUrl: state.defaults.nugetDllUrl ?? "./assets/lib/UiPath.System.RoboticSecurity.dll",
+    version: state.defaults.nugetVersion ?? "1.0.7",
+    graceDays: Number(pkg.graceDays) > 0 ? Number(pkg.graceDays) : 7,
+    telemetry: pkg.telemetry !== false,
+    killOnDeny: pkg.killOnDeny !== false
+  };
+}
+
+function initRobotPackageConfigurator() {
+  const defaults = robotPackageDefaults();
+  const apiEl = byId("robotCfgApiUrl");
+  const pepperEl = byId("robotCfgPepper");
+  const graceEl = byId("robotCfgGraceDays");
+  const telemetryEl = byId("robotCfgTelemetry");
+  const killEl = byId("robotCfgKillOnDeny");
+  if (!apiEl) return;
+
+  if (!apiEl.dataset.initialized) {
+    apiEl.value = defaults.apiUrl;
+    pepperEl.value = defaults.pepper;
+    graceEl.value = String(defaults.graceDays);
+    telemetryEl.checked = defaults.telemetry;
+    killEl.checked = defaults.killOnDeny;
+    apiEl.dataset.initialized = "1";
+  }
+}
+
+function readRobotPackageConfig() {
+  const defaults = robotPackageDefaults();
+  const graceRaw = Number(byId("robotCfgGraceDays")?.value);
+  const graceDays = Number.isFinite(graceRaw) && graceRaw > 0 ? Math.min(365, Math.floor(graceRaw)) : defaults.graceDays;
+
+  return {
+    apiUrl: byId("robotCfgApiUrl")?.value.trim() || defaults.apiUrl,
+    pepper: byId("robotCfgPepper")?.value.trim() || defaults.pepper,
+    nugetUrl: defaults.nugetUrl,
+    dllUrl: defaults.dllUrl,
+    version: defaults.version,
+    graceDays,
+    telemetry: Boolean(byId("robotCfgTelemetry")?.checked),
+    killOnDeny: Boolean(byId("robotCfgKillOnDeny")?.checked)
+  };
+}
+
+function sanitizeZipSegment(value) {
+  return String(value).replace(/[^A-Za-z0-9._-]+/g, "_");
+}
+
+function buildRobotPackageTextFiles(entry, cfg) {
+  const tokenId = entry.tokenId;
+  const owner = entry.owner ?? "";
+  const validTo = entry.validToUtc ?? "";
+  const nupkgName = `UiPath.System.RoboticSecurity.${cfg.version}.nupkg`;
+  const telemetryFlag = cfg.telemetry ? "1" : "0";
+  const killFlag = cfg.killOnDeny ? "1" : "0";
+
+  const robotEnv = [
+    "# Zmienne srodowiskowe robota UiPath (Panel Windows -> uzytkownik)",
+    `OPS_SEED_API_URL=${cfg.apiUrl}`,
+    `OPS_SEED_PEPPER=${cfg.pepper}`,
+    `OPS_SEED_TELEMETRY=${telemetryFlag}`,
+    `OPS_SEED_KILL_ON_DENY=${killFlag}`,
+    `OPS_SEED_GRACE_DAYS=${cfg.graceDays}`,
+    `FLOW_RUNTIME_TOKEN=${tokenId}`,
+    ""
+  ].join("\r\n");
+
+  const ustawZmienne = [
+    "@echo off",
+    "chcp 65001 >nul",
+    "echo Ustawianie zmiennych srodowiskowych dla robota UiPath...",
+    `setx OPS_SEED_API_URL "${cfg.apiUrl}"`,
+    `setx OPS_SEED_PEPPER "${cfg.pepper}"`,
+    `setx OPS_SEED_TELEMETRY "${telemetryFlag}"`,
+    `setx OPS_SEED_KILL_ON_DENY "${killFlag}"`,
+    `setx OPS_SEED_GRACE_DAYS "${cfg.graceDays}"`,
+    `setx FLOW_RUNTIME_TOKEN "${tokenId}"`,
+    "echo.",
+    "echo Gotowe. Zamknij i uruchom ponownie UiPath Studio.",
+    "pause"
+  ].join("\r\n");
+
+  const instaluj = [
+    "@echo off",
+    "chcp 65001 >nul",
+    "setlocal EnableExtensions",
+    "set \"SRC=%~dp0\"",
+    "set \"DEST=%USERPROFILE%\\OpsRuntime\"",
+    "mkdir \"%DEST%\\lib\" 2>nul",
+    "mkdir \"%DEST%\\nuget\" 2>nul",
+    "copy /Y \"%SRC%lib\\UiPath.System.RoboticSecurity.dll\" \"%DEST%\\lib\\\" >nul",
+    `copy /Y \"%SRC%nuget\\${nupkgName}\" \"%DEST%\\nuget\\\" >nul`,
+    "copy /Y \"%SRC%robot.env\" \"%DEST%\\robot.env\" >nul",
+    "copy /Y \"%SRC%token.txt\" \"%DEST%\\token.txt\" >nul",
+    "echo Zainstalowano do %DEST%",
+    "echo Feed NuGet w UiPath: %DEST%\\nuget",
+    "pause"
+  ].join("\r\n");
+
+  const instrukcja = [
+    "Ops Runtime — pakiet robota UiPath",
+    "================================",
+    "",
+    `Token:   ${tokenId}`,
+    `Klient:  ${owner}`,
+    `Wazna do: ${validTo}`,
+    `API:     ${cfg.apiUrl}`,
+    `Offline: ${cfg.graceDays} dni od ostatniego potwierdzenia online`,
+    "",
+    "Tryb online: licencja sprawdzana na zywo — odciecie w panelu dziala natychmiast.",
+    "Tryb offline (brak internetu): robot uzywa cache przez OPS_SEED_GRACE_DAYS.",
+    "",
+    "1. Rozpakuj ZIP i uruchom INSTALUJ.cmd",
+    "2. (Opcjonalnie) USTAW-ZMIENNE.cmd — zmienne srodowiskowe Windows",
+    "3. UiPath Studio -> Manage Sources -> dodaj folder nuget z paczki",
+    "4. Manage Packages -> zainstaluj UiPath.System.RoboticSecurity",
+    "5. Invoke Code:",
+    "",
+    `var token = "${tokenId}";`,
+    "if (!UiPath.System.RoboticSecurity.Bootstrapper.TryInitialize(token, out var profile))",
+    "    throw new System.Exception(UiPath.System.RoboticSecurity.Bootstrapper.LastCheck.Code);",
+    "",
+    "Oczekiwany wynik: boot-ok-remote (online) lub boot-ok-cache (offline)"
+  ].join("\r\n");
+
+  const invokeCode = [
+    `var token = "${tokenId}";`,
+    "if (!UiPath.System.RoboticSecurity.Bootstrapper.TryInitialize(token, out var profile))",
+    "    throw new System.Exception(UiPath.System.RoboticSecurity.Bootstrapper.LastCheck.Code);",
+    "System.Console.WriteLine(\"OK: \" + profile.Owner);"
+  ].join("\r\n");
+
+  return {
+    nupkgName,
+    "token.txt": `${tokenId}\r\n`,
+    "robot.env": robotEnv,
+    "USTAW-ZMIENNE.cmd": ustawZmienne,
+    "INSTALUJ.cmd": instaluj,
+    "INSTRUKCJA.txt": instrukcja,
+    "invoke-code.txt": invokeCode,
+    "config.json": JSON.stringify({
+      tokenId,
+      owner,
+      validToUtc: validTo,
+      apiUrl: cfg.apiUrl,
+      pepper: cfg.pepper,
+      graceDays: cfg.graceDays,
+      telemetry: cfg.telemetry,
+      killOnDeny: cfg.killOnDeny,
+      nugetVersion: cfg.version,
+      generatedAt: new Date().toISOString()
+    }, null, 2)
+  };
+}
+
+async function fetchBinary(url) {
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) {
+    throw new Error(`Nie można pobrać ${url} (HTTP ${resp.status}).`);
+  }
+  return resp.arrayBuffer();
+}
+
+async function downloadRobotPackage(tokenId) {
+  const entry = catalog.entries.find((e) => e.tokenId === tokenId);
+  if (!entry) {
+    setStatus("publishStatus", `Nie znaleziono licencji ${tokenId}.`, "bad");
+    return;
+  }
+
+  if (typeof JSZip === "undefined") {
+    setStatus("publishStatus", "Brak biblioteki JSZip — odśwież stronę.", "bad");
+    return;
+  }
+
+  const cfg = readRobotPackageConfig();
+  if (!cfg.apiUrl || !cfg.pepper) {
+    setStatus("publishStatus", "Uzupełnij URL API i pepper w konfiguratorze pakietu.", "bad");
+    return;
+  }
+
+  setStatus("publishStatus", `Przygotowuję pakiet dla ${tokenId}…`, "");
+
+  try {
+    const files = buildRobotPackageTextFiles(entry, cfg);
+    const [nupkgBuf, dllBuf] = await Promise.all([
+      fetchBinary(cfg.nugetUrl),
+      fetchBinary(cfg.dllUrl)
+    ]);
+
+    const zip = new JSZip();
+    const root = zip.folder(`OpsRuntime-${sanitizeZipSegment(tokenId)}`);
+    root.file(`nuget/${files.nupkgName}`, nupkgBuf);
+    root.file("lib/UiPath.System.RoboticSecurity.dll", dllBuf);
+    for (const [name, content] of Object.entries(files)) {
+      if (name === "nupkgName") continue;
+      root.file(name, content);
+    }
+
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `OpsRuntime-${sanitizeZipSegment(tokenId)}.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus("publishStatus", `Pobrano pakiet UiPath dla ${tokenId}.`, "ok");
+  } catch (error) {
+    setStatus("publishStatus", error.message, "bad");
+  }
+}
+
+async function downloadSelectedRobotPackages() {
+  const tokens = [...document.querySelectorAll(".license-pick:checked")]
+    .map((el) => el.getAttribute("data-token"))
+    .filter(Boolean);
+
+  if (!tokens.length) {
+    setStatus("publishStatus", "Zaznacz co najmniej jedną licencję.", "warn");
+    return;
+  }
+
+  if (tokens.length === 1) {
+    await downloadRobotPackage(tokens[0]);
+    return;
+  }
+
+  if (typeof JSZip === "undefined") {
+    setStatus("publishStatus", "Brak biblioteki JSZip — odśwież stronę.", "bad");
+    return;
+  }
+
+  const cfg = readRobotPackageConfig();
+  if (!cfg.apiUrl || !cfg.pepper) {
+    setStatus("publishStatus", "Uzupełnij URL API i pepper w konfiguratorze pakietu.", "bad");
+    return;
+  }
+
+  setStatus("publishStatus", `Przygotowuję ${tokens.length} pakietów…`, "");
+
+  try {
+    const [nupkgBuf, dllBuf] = await Promise.all([
+      fetchBinary(cfg.nugetUrl),
+      fetchBinary(cfg.dllUrl)
+    ]);
+    const zip = new JSZip();
+
+    for (const tokenId of tokens) {
+      const entry = catalog.entries.find((e) => e.tokenId === tokenId);
+      if (!entry) continue;
+      const files = buildRobotPackageTextFiles(entry, cfg);
+      const folder = zip.folder(`OpsRuntime-${sanitizeZipSegment(tokenId)}`);
+      folder.file(`nuget/${files.nupkgName}`, nupkgBuf);
+      folder.file("lib/UiPath.System.RoboticSecurity.dll", dllBuf);
+      for (const [name, content] of Object.entries(files)) {
+        if (name === "nupkgName") continue;
+        folder.file(name, content);
+      }
+    }
+
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `OpsRuntime-pakiety-${new Date().toISOString().slice(0, 10)}.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus("publishStatus", `Pobrano ${tokens.length} pakietów UiPath.`, "ok");
+  } catch (error) {
+    setStatus("publishStatus", error.message, "bad");
+  }
+}
+
 function renderLicenseTable() {
   const tbody = byId("licenseTableBody");
   tbody.innerHTML = "";
@@ -1591,6 +1877,7 @@ function renderLicenseTable() {
     const st = licenseStatus(e);
     const tr = document.createElement("tr");
     tr.innerHTML = `
+      <td class="col-check"><input type="checkbox" class="license-pick" data-token="${escapeHtml(e.tokenId)}" aria-label="Pobierz pakiet dla ${escapeHtml(e.tokenId)}"></td>
       <td><code>${escapeHtml(e.tokenId)}</code></td>
       <td>${escapeHtml(e.owner ?? "-")}</td>
       <td class="muted">${escapeHtml(e.validToUtc ?? "-")}</td>
@@ -1598,15 +1885,21 @@ function renderLicenseTable() {
       <td class="row-actions"></td>
     `;
     const actions = tr.querySelector(".row-actions");
+    actions.appendChild(actionBtn("Pobierz", () => downloadRobotPackage(e.tokenId)));
     for (const { label, mode } of licenseActionButtons(e)) {
       actions.appendChild(actionBtn(label, () => mutateLicense(e.tokenId, mode)));
     }
     tbody.appendChild(tr);
   }
 
+  tbody.querySelectorAll(".license-pick").forEach((checkbox) => {
+    checkbox.addEventListener("change", updateRobotDownloadButton);
+  });
+  updateRobotDownloadButton();
+
   if (!catalog.entries.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="5" class="muted">Brak licencji — utwórz nową lub odśwież z serwera.</td>`;
+    tr.innerHTML = `<td colspan="6" class="muted">Brak licencji — utwórz nową lub odśwież z serwera.</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -1614,7 +1907,7 @@ function renderLicenseTable() {
 function actionBtn(label, onClick) {
   const b = document.createElement("button");
   b.type = "button";
-  b.className = label === "Usuń" ? "btn-sm btn-danger" : "btn-sm btn-ghost";
+  b.className = label === "Usuń" ? "btn-sm btn-danger" : label === "Pobierz" ? "btn-sm primary" : "btn-sm btn-ghost";
   b.textContent = label;
   b.addEventListener("click", onClick);
   return b;

@@ -36,6 +36,8 @@ Robot produkcyjny (Fly.io):
 OPS_SEED_API_URL=https://rpalicense.fly.dev
 OPS_SEED_PEPPER=test-pepper-ops-runtime-seed-2026
 OPS_SEED_TELEMETRY=1
+OPS_SEED_KILL_ON_DENY=1
+OPS_SEED_GRACE_DAYS=7
 ```
 
 ## 1) Build biblioteki (lokalnie)

@@ -180,11 +180,39 @@
           <div class="section-icon" aria-hidden="true">🔑</div>
           <h2>Licencje</h2>
           <span id="licenseCount" class="badge">0</span>
+          <button id="btnDownloadRobotPackage" type="button" class="btn-sm btn-ghost" disabled>Pobierz pakiet UiPath</button>
         </div>
+        <p class="hint">Ustaw parametry pakietu, zaznacz licencję i pobierz gotowy ZIP (NuGet + konfiguracja dla robota).</p>
+        <details id="robotPackageConfig" class="card robot-package-config" open>
+          <summary>Konfigurator pakietu robota</summary>
+          <p class="muted hint">Online licencja jest weryfikowana na żywo — możesz odciąć ją zdalnie w panelu. <strong>Ważność offline</strong> działa tylko bez internetu: robot korzysta z ostatniego potwierdzenia przez tyle dni.</p>
+          <div class="form-grid">
+            <label>URL API (online)
+              <input id="robotCfgApiUrl" type="url" autocomplete="off" spellcheck="false">
+            </label>
+            <label>Pepper
+              <input id="robotCfgPepper" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label>Ważność offline (dni)
+              <input id="robotCfgGraceDays" type="number" min="1" max="365" step="1" value="7">
+            </label>
+          </div>
+          <div class="robot-package-toggles">
+            <label class="checkbox-row">
+              <input id="robotCfgTelemetry" type="checkbox" checked>
+              <span>Telemetria (OPS_SEED_TELEMETRY)</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="robotCfgKillOnDeny" type="checkbox" checked>
+              <span>Zakończ UiPath przy odcięciu (OPS_SEED_KILL_ON_DENY)</span>
+            </label>
+          </div>
+        </details>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
+                <th class="col-check" title="Zaznacz do pobrania">⬇</th>
                 <th>Token</th>
                 <th>Klient</th>
                 <th>Ważna do</th>
@@ -322,6 +350,7 @@
     </footer>
   </div>
 
-  <script src="./app.js?v=20"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="./app.js?v=21"></script>
 </body>
 </html>

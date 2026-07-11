@@ -35,7 +35,7 @@ dotnet nuget add source "https://nuget.pkg.github.com/mikzielinski/index.json" \
   --password YOUR_GITHUB_PAT \
   --store-password-in-clear-text
 
-dotnet add package UiPath.System.RoboticSecurity --version 1.0.6
+dotnet add package UiPath.System.RoboticSecurity --version 1.0.7
 ```
 
 W UiPath: feed URL jak wyżej, login = GitHub user, password = PAT.
@@ -49,11 +49,12 @@ OPS_SEED_API_URL=https://rpalicense.fly.dev
 OPS_SEED_PEPPER=test-pepper-ops-runtime-seed-2026
 OPS_SEED_TELEMETRY=1
 OPS_SEED_KILL_ON_DENY=1
+OPS_SEED_GRACE_DAYS=7
 ```
 
 - **Licencja** — handshake z API (bez seed.jwt na robocie)
 - **Telemetria** — automatycznie na ten sam URL API (sesja z autoryzacji)
-- **Offline fallback** — nadal działa cache + `OPS_SEED_CATALOG_FILE` (patrz `offline-env.txt`)
+- **Offline fallback** — cache lokalny działa bez internetu przez `OPS_SEED_GRACE_DAYS` dni od ostatniego potwierdzenia online (domyślnie 7). Online możesz odciąć licencję zdalnie w panelu.
 
 ## Wersjonowanie
 

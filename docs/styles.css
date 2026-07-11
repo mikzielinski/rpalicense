@@ -814,3 +814,36 @@ details.card[open] summary {
     padding: 28px 22px 24px;
   }
 }
+
+.col-check {
+  width: 42px;
+  text-align: center;
+}
+
+.col-check input {
+  width: auto;
+  cursor: pointer;
+}
+
+.robot-package-config {
+  margin: 0 0 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.robot-package-config summary {
+  margin-bottom: 0;
+}
+
+.robot-package-config[open] summary {
+  margin-bottom: 12px;
+}
+
+.robot-package-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 28px;
+  margin-top: 4px;
+}
