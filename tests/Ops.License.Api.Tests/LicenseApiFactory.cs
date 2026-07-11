@@ -13,24 +13,24 @@ internal sealed class LicenseApiFactory : WebApplicationFactory<Program>
 {
     internal const string OperatorSecret = "test-operator-secret";
     internal const string SessionSigningKey = "test-session-signing-key-32-chars!";
-    internal const string SeedPath = "docs/assets/seed.jwt";
 
-    private readonly FakeGitHubHandler _github = new();
+    private readonly InMemoryLicenseStore _store = new();
     private readonly FixtureManifest _manifest;
 
     internal LicenseApiFactory(FixtureManifest manifest, string seedJwt)
     {
         _manifest = manifest;
-        _github.SetTextFile(SeedPath, $"{seedJwt.Trim()}\n");
+        _store.SeedJwt(seedJwt);
     }
 
-    internal FakeGitHubHandler GitHub => _github;
+    internal InMemoryLicenseStore Store => _store;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
 
-        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "ghp_test_token");
+        Environment.SetEnvironmentVariable("DATABASE_URL", null);
+        Environment.SetEnvironmentVariable("NEON_DATABASE_URL", null);
         Environment.SetEnvironmentVariable("OPS_OPERATOR_SECRET", OperatorSecret);
         Environment.SetEnvironmentVariable("OPS_SESSION_SIGNING_KEY", SessionSigningKey);
         Environment.SetEnvironmentVariable("OPS_SEED_PEPPER", _manifest.Pepper);
@@ -42,13 +42,9 @@ internal sealed class LicenseApiFactory : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
-            services.RemoveAll<GitHubContentsClient>();
-            services.AddSingleton(_github);
-            services.AddSingleton<GitHubContentsClient>(sp =>
-            {
-                var http = new HttpClient(_github) { BaseAddress = new Uri("https://api.github.com/") };
-                return new GitHubContentsClient(http, sp.GetRequiredService<GitHubOptions>());
-            });
+            services.RemoveAll<ILicenseStore>();
+            services.AddSingleton(_store);
+            services.AddSingleton<ILicenseStore>(sp => sp.GetRequiredService<InMemoryLicenseStore>());
         });
     }
 

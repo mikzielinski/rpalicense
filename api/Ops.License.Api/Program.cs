@@ -5,11 +5,12 @@ using UiPath.System.RoboticSecurity;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var githubOptions = builder.Configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
-githubOptions.Token = FirstNonEmpty(
-    Environment.GetEnvironmentVariable("GITHUB_TOKEN"),
-    Environment.GetEnvironmentVariable("OPS_GITHUB_TOKEN"),
-    githubOptions.Token) ?? string.Empty;
+var databaseOptions = builder.Configuration.GetSection(DatabaseOptions.SectionName).Get<DatabaseOptions>() ?? new DatabaseOptions();
+databaseOptions.ConnectionString = FirstNonEmpty(
+    Environment.GetEnvironmentVariable("DATABASE_URL"),
+    Environment.GetEnvironmentVariable("NEON_DATABASE_URL"),
+    builder.Configuration.GetConnectionString("Default"),
+    databaseOptions.ConnectionString) ?? string.Empty;
 
 var serverSettings = builder.Configuration.GetSection(ServerSettings.SectionName).Get<ServerSettings>() ?? new ServerSettings();
 serverSettings.Pepper = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SEED_PEPPER"), serverSettings.Pepper) ?? serverSettings.Pepper;
@@ -26,12 +27,21 @@ var allowedOrigins = corsOptions.AllowedOrigins.Length > 0
     ? corsOptions.AllowedOrigins
     : new[] { "https://mikzielinski.github.io" };
 
-builder.Services.AddSingleton(githubOptions);
+builder.Services.AddSingleton(databaseOptions);
 builder.Services.AddSingleton(serverSettings);
 builder.Services.AddSingleton<HandshakeService>();
 builder.Services.AddSingleton<SessionTokenService>();
 builder.Services.AddSingleton<CatalogService>();
-builder.Services.AddHttpClient<GitHubContentsClient>();
+
+if (string.IsNullOrWhiteSpace(databaseOptions.ConnectionString))
+{
+    builder.Services.AddSingleton<ILicenseStore, InMemoryLicenseStore>();
+}
+else
+{
+    builder.Services.AddSingleton<ILicenseStore, PostgresLicenseStore>();
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -44,9 +54,20 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-if (string.IsNullOrWhiteSpace(githubOptions.Token))
+var store = app.Services.GetRequiredService<ILicenseStore>();
+try
 {
-    app.Logger.LogWarning("GITHUB_TOKEN is not configured — catalog publish will fail.");
+    await store.EnsureSchemaAsync().ConfigureAwait(false);
+    app.Logger.LogInformation("Database schema is ready.");
+}
+catch (Exception ex)
+{
+    app.Logger.LogError(ex, "Database schema initialization failed.");
+}
+
+if (string.IsNullOrWhiteSpace(databaseOptions.ConnectionString))
+{
+    app.Logger.LogWarning("DATABASE_URL is not configured — using in-memory storage (development only).");
 }
 
 if (string.IsNullOrWhiteSpace(serverSettings.OperatorSecret))
@@ -61,7 +82,7 @@ if (string.IsNullOrWhiteSpace(serverSettings.SessionSigningKey))
 
 app.UseCors();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", storage = string.IsNullOrWhiteSpace(databaseOptions.ConnectionString) ? "memory" : "postgres" }));
 
 app.MapPost("/v1/runtime/challenge", (RuntimeChallengeRequest request, HandshakeService handshake) =>
 {
@@ -137,14 +158,17 @@ app.MapPost("/v1/runtime/authorize", async (
     {
         return Results.Json(new AuthorizeResponse { Success = false, Code = ex.Message });
     }
+    catch (FileNotFoundException ex)
+    {
+        return Results.Json(new AuthorizeResponse { Success = false, Code = ex.Message });
+    }
 });
 
 app.MapPost("/v1/runtime/telemetry", async (
     HttpRequest httpRequest,
     TelemetryAppendRequest request,
     SessionTokenService sessions,
-    GitHubContentsClient github,
-    GitHubOptions githubOptions,
+    ILicenseStore store,
     CancellationToken ct) =>
 {
     if (!SessionAuth.RequireRuntime(httpRequest, sessions, out var claims))
@@ -171,16 +195,8 @@ app.MapPost("/v1/runtime/telemetry", async (
         WindowsIdentity = request.WindowsIdentity
     };
 
-    var result = await github.AppendJsonEntryAsync<TelemetryAppendRequest, EntriesDocument<TelemetryAppendRequest>>(
-        githubOptions.RobotEventsPath,
-        entry,
-        () => new EntriesDocument<TelemetryAppendRequest>(),
-        doc => doc.Entries,
-        (doc, entries) => doc.Entries = entries,
-        $"robot-check {entry.TokenId} {entry.Code}",
-        cancellationToken: ct).ConfigureAwait(false);
-
-    return Results.Ok(new { ok = true, revision = result.Sha });
+    var result = await store.AppendRobotEventAsync(entry, ct).ConfigureAwait(false);
+    return Results.Ok(new { ok = true, revision = result.Revision });
 });
 
 app.MapPost("/v1/operator/challenge", (OperatorChallengeRequest request, HandshakeService handshake) =>
@@ -269,14 +285,13 @@ app.MapPost("/v1/catalog/publish", async (
 
     var message = string.IsNullOrWhiteSpace(request.Message) ? "Update seed.jwt (api)" : request.Message.Trim();
     var result = await catalog.PublishSeedJwtAsync(jwt, message, ct).ConfigureAwait(false);
-    return Results.Ok(new { ok = true, revision = result.Sha });
+    return Results.Ok(new { ok = true, revision = result.Revision });
 });
 
 app.MapGet("/v1/audit", async (
     HttpRequest httpRequest,
     SessionTokenService sessions,
-    GitHubContentsClient github,
-    GitHubOptions options,
+    ILicenseStore store,
     CancellationToken ct) =>
 {
     if (!SessionAuth.RequireOperator(httpRequest, sessions, out _))
@@ -284,25 +299,15 @@ app.MapGet("/v1/audit", async (
         return Results.Unauthorized();
     }
 
-    try
-    {
-        var meta = await github.GetFileAsync(options.AuditPath, ct).ConfigureAwait(false);
-        var doc = JsonSerializer.Deserialize<EntriesDocument<AuditEntryDto>>(meta.Text, JsonDefaults.Web)
-                  ?? new EntriesDocument<AuditEntryDto>();
-        return Results.Ok(doc);
-    }
-    catch (FileNotFoundException)
-    {
-        return Results.Ok(new EntriesDocument<AuditEntryDto>());
-    }
+    var doc = await store.GetAuditAsync(ct).ConfigureAwait(false);
+    return Results.Ok(doc);
 });
 
 app.MapPost("/v1/audit", async (
     HttpRequest httpRequest,
     AuditReplaceRequest request,
     SessionTokenService sessions,
-    GitHubContentsClient github,
-    GitHubOptions options,
+    ILicenseStore store,
     CancellationToken ct) =>
 {
     if (!SessionAuth.RequireOperator(httpRequest, sessions, out _))
@@ -310,20 +315,15 @@ app.MapPost("/v1/audit", async (
         return Results.Unauthorized();
     }
 
-    var body = new EntriesDocument<AuditEntryDto>
-    {
-        Entries = request.Entries.Take(500).ToList()
-    };
-    var json = JsonSerializer.Serialize(body, JsonDefaults.Web) + "\n";
-    var result = await github.PublishTextFileAsync(options.AuditPath, json, "Update audit-log.json (api)", ct).ConfigureAwait(false);
-    return Results.Ok(new { ok = true, revision = result.Sha, count = body.Entries.Count });
+    var entries = request.Entries.Take(500).ToList();
+    var result = await store.ReplaceAuditAsync(entries, ct).ConfigureAwait(false);
+    return Results.Ok(new { ok = true, revision = result.Revision, count = entries.Count });
 });
 
 app.MapGet("/v1/robot-events", async (
     HttpRequest httpRequest,
     SessionTokenService sessions,
-    GitHubContentsClient github,
-    GitHubOptions options,
+    ILicenseStore store,
     CancellationToken ct) =>
 {
     if (!SessionAuth.RequireOperator(httpRequest, sessions, out _))
@@ -331,17 +331,8 @@ app.MapGet("/v1/robot-events", async (
         return Results.Unauthorized();
     }
 
-    try
-    {
-        var meta = await github.GetFileAsync(options.RobotEventsPath, ct).ConfigureAwait(false);
-        var doc = JsonSerializer.Deserialize<EntriesDocument<TelemetryAppendRequest>>(meta.Text, JsonDefaults.Web)
-                  ?? new EntriesDocument<TelemetryAppendRequest>();
-        return Results.Ok(doc);
-    }
-    catch (FileNotFoundException)
-    {
-        return Results.Ok(new EntriesDocument<TelemetryAppendRequest>());
-    }
+    var doc = await store.GetRobotEventsAsync(ct).ConfigureAwait(false);
+    return Results.Ok(doc);
 });
 
 app.Run();
