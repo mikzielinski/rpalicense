@@ -456,6 +456,9 @@ async function apiPostPublic(path, body) {
   }
 
   if (!resp.ok) {
+    if (resp.status === 401 && json?.error === "invalid_credentials") {
+      throw new Error("Nieprawidłowy login lub hasło.");
+    }
     const msg = json?.error ?? json?.message ?? text?.slice(0, 300) ?? resp.statusText;
     throw new Error(`API ${resp.status}: ${msg}`);
   }

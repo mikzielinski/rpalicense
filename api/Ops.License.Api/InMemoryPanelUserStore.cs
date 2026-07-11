@@ -10,6 +10,18 @@ public sealed class InMemoryPanelUserStore : IPanelUserStore
 
     public Task EnsureBootstrapAdminAsync(string username, string password, string? githubLogin = null, CancellationToken cancellationToken = default)
     {
+        var normalized = username.Trim();
+        if (_users.TryGetValue(normalized, out var existing))
+        {
+            existing.PasswordHash = PasswordHasher.Hash(password);
+            if (!string.IsNullOrWhiteSpace(githubLogin))
+            {
+                existing.GithubLogin = NormalizeGithubLogin(githubLogin);
+                IndexOAuth(existing);
+            }
+            return Task.CompletedTask;
+        }
+
         if (_users.Count > 0)
         {
             return Task.CompletedTask;
@@ -17,7 +29,7 @@ public sealed class InMemoryPanelUserStore : IPanelUserStore
 
         var record = new PanelUserRecord
         {
-            Username = username.Trim(),
+            Username = normalized,
             PasswordHash = PasswordHasher.Hash(password),
             IsAdmin = true,
             CreatedAtUtc = DateTime.UtcNow,

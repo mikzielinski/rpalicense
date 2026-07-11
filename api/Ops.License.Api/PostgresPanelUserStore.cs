@@ -21,15 +21,37 @@ public sealed class PostgresPanelUserStore : IPanelUserStore
 
     public async Task EnsureBootstrapAdminAsync(string username, string password, string? githubLogin = null, CancellationToken cancellationToken = default)
     {
+        var normalized = username.Trim();
+        var passwordHash = PasswordHasher.Hash(password);
+
         if (await AnyUsersAsync(cancellationToken).ConfigureAwait(false))
         {
+            var existing = await FindByUsernameAsync(normalized, cancellationToken).ConfigureAwait(false);
+            if (existing is null)
+            {
+                return;
+            }
+
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = new NpgsqlCommand(
+                """
+                UPDATE panel_user
+                SET password_hash = @password_hash,
+                    github_login = COALESCE(@github_login, github_login)
+                WHERE username = @username
+                """,
+                connection);
+            command.Parameters.AddWithValue("username", normalized);
+            command.Parameters.AddWithValue("password_hash", passwordHash);
+            command.Parameters.AddWithValue("github_login", (object?)NormalizeGithubLogin(githubLogin) ?? DBNull.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             return;
         }
 
         await CreateUserAsync(new PanelUserCreateOptions
         {
-            Username = username.Trim(),
-            PasswordHash = PasswordHasher.Hash(password),
+            Username = normalized,
+            PasswordHash = passwordHash,
             IsAdmin = true,
             GithubLogin = githubLogin
         }, cancellationToken).ConfigureAwait(false);
