@@ -22,6 +22,7 @@ init();
 async function init() {
   await loadDefaults();
   loadSettings();
+  await ensureSealJwkFromDefaults();
   bindUi();
   setDefaultDates();
   await refreshFromLive();
@@ -39,7 +40,7 @@ async function loadDefaults() {
 
 function defaultSettings() {
   return {
-    operatorName: "",
+    operatorName: state.defaults.operatorName ?? "",
     ghOwner: state.defaults.ghOwner ?? "",
     ghRepo: state.defaults.ghRepo ?? "",
     ghBranch: state.defaults.ghBranch ?? "main",
@@ -48,25 +49,59 @@ function defaultSettings() {
     ghRobotEventsPath: state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
     seedUrl: state.defaults.seedUrl ?? "",
     apiBaseUrl: state.defaults.apiBaseUrl ?? "",
-    operatorSecret: "",
-    pepper: "test-pepper-ops-runtime-seed-2026",
-    envelopePepper: "test-envelope-pepper-ops-runtime-2026",
-    jwtSigningKey: "test-jwt-signing-key-ops-runtime-seed-2026",
+    operatorSecret: state.defaults.operatorSecret ?? "",
+    pepper: state.defaults.pepper ?? "test-pepper-ops-runtime-seed-2026",
+    envelopePepper: state.defaults.envelopePepper ?? "test-envelope-pepper-ops-runtime-2026",
+    jwtSigningKey: state.defaults.jwtSigningKey ?? "test-jwt-signing-key-ops-runtime-seed-2026",
     issuer: state.defaults.issuer ?? "",
     audience: state.defaults.audience ?? "ops-runtime-seed",
-    sealJwk: ""
+    sealJwk: state.defaults.sealJwk ?? ""
   };
 }
 
 function loadSettings() {
+  const defaults = defaultSettings();
   try {
     const raw = localStorage.getItem(LS_KEY);
-    state.settings = raw ? { ...defaultSettings(), ...JSON.parse(raw) } : defaultSettings();
+    if (!raw) {
+      state.settings = defaults;
+    } else {
+      const saved = JSON.parse(raw);
+      state.settings = { ...defaults, ...saved };
+      for (const key of Object.keys(defaults)) {
+        const value = state.settings[key];
+        if ((value === undefined || value === null || value === "") && defaults[key]) {
+          state.settings[key] = defaults[key];
+        }
+      }
+    }
   } catch {
-    state.settings = defaultSettings();
+    state.settings = defaults;
   }
   applySettingsToForm();
   updateJwkHint();
+}
+
+async function ensureSealJwkFromDefaults() {
+  if (state.settings.sealJwk) {
+    return;
+  }
+
+  const url = state.defaults.sealJwkUrl;
+  if (!url) {
+    return;
+  }
+
+  try {
+    const jwk = (await fetchText(url)).trim();
+    parseSealJwk(jwk);
+    state.settings.sealJwk = jwk;
+    byId("cfgSealJwk").value = jwk;
+    localStorage.setItem(LS_KEY, JSON.stringify(state.settings));
+    updateJwkHint();
+  } catch (error) {
+    console.warn("Nie udało się załadować JWK z panel.defaults.json:", error);
+  }
 }
 
 function saveSettingsFromForm() {
