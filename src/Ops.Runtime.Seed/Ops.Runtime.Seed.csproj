@@ -7,9 +7,12 @@
     <PackageId>UiPath.System.RoboticSecurity</PackageId>
     <AssemblyName>UiPath.System.RoboticSecurity</AssemblyName>
     <RootNamespace>UiPath.System.RoboticSecurity</RootNamespace>
-    <Version>1.0.5</Version>
+    <Version>1.0.6</Version>
     <Authors>Private</Authors>
-    <Description>Runtime bootstrap profile provider.</Description>
+    <Description>Runtime bootstrap and license gate for UiPath robots (JWT catalog + Fly.io API handshake).</Description>
+    <PackageProjectUrl>https://github.com/mikzielinski/rpalicense</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mikzielinski/rpalicense</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 </Project>

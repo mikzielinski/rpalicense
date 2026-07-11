@@ -97,32 +97,39 @@ OPS_SEED_TELEMETRY=1
 
 Działa **tylko dla kont już dodanych przez admina** z powiązanym GitHub login lub Google email.
 
-### 1. OAuth Apps
+### Konfiguracja (panel admina — bez redeploy)
 
-**GitHub** → Settings → Developer settings → OAuth App:
-- Homepage: `https://mikzielinski.github.io/rpalicense`
-- Callback: `https://rpalicense.fly.dev/v1/panel/oauth/github/callback`
+1. Zaloguj się jako administrator
+2. Sekcja **Konta panelu → Logowanie OAuth**
+3. Uzupełnij URL panelu, URL API, Client ID i Secret dla GitHub/Google
+4. Skopiuj wyświetlone **Callback URL** do konsoli OAuth providera
+5. **Zapisz OAuth**
 
-**Google** → Cloud Console → OAuth client (Web):
-- Authorized redirect URI: `https://rpalicense.fly.dev/v1/panel/oauth/google/callback`
+Sekrety są **szyfrowane w bazie Neon** (AES-GCM, klucz z `OPS_SESSION_SIGNING_KEY`). W panelu widać tylko maskę (`••••1234`), nie pełny secret.
 
-### 2. Sekrety na Fly
+### Jednorazowy import ze zmiennych środowiskowych
 
-```bash
-flyctl secrets set \
-  OPS_OAUTH_GITHUB_CLIENT_ID='...' \
-  OPS_OAUTH_GITHUB_CLIENT_SECRET='...' \
-  OPS_OAUTH_GOOGLE_CLIENT_ID='...' \
-  OPS_OAUTH_GOOGLE_CLIENT_SECRET='...' \
-  OPS_PANEL_PUBLIC_URL='https://mikzielinski.github.io/rpalicense' \
-  OPS_API_PUBLIC_URL='https://rpalicense.fly.dev' \
-  --app rpalicense
+Jeśli baza OAuth jest pusta, API przy starcie importuje wartości z env (np. po migracji):
+
+```
+OPS_OAUTH_GITHUB_CLIENT_ID
+OPS_OAUTH_GITHUB_CLIENT_SECRET
+OPS_OAUTH_GOOGLE_CLIENT_ID
+OPS_OAUTH_GOOGLE_CLIENT_SECRET
+OPS_PANEL_PUBLIC_URL
+OPS_API_PUBLIC_URL
 ```
 
-### 3. Powiązanie konta (admin)
+Po imporcie zarządzaj konfiguracją wyłącznie z panelu.
 
-Przy tworzeniu konta podaj **GitHub login** (np. `mikzielinski`) lub **Google email**.  
-Dla istniejącego konta: `PATCH /v1/panel/accounts/{username}` z `{ "githubLogin": "..." }`.
+### Callback URLs (generowane automatycznie)
+
+- GitHub: `{API_URL}/v1/panel/oauth/github/callback`
+- Google: `{API_URL}/v1/panel/oauth/google/callback`
+
+### Powiązanie konta (admin)
+
+Przy tworzeniu konta podaj **GitHub login** lub **Google email**, albo użyj **Powiąż OAuth** dla istniejącego konta.
 
 ## Zmienne środowiskowe serwera
 
@@ -131,10 +138,7 @@ Dla istniejącego konta: `PATCH /v1/panel/accounts/{username}` z `{ "githubLogin
 | `DATABASE_URL` | Neon PostgreSQL (pooler, `sslmode=require`) |
 | `OPS_PANEL_ADMIN_PASSWORD` | Hasło pierwszego admina (`mikolaj`) |
 | `OPS_PANEL_ADMIN_GITHUB_LOGIN` | Opcjonalny GitHub login admina (OAuth) |
-| `OPS_OAUTH_GITHUB_CLIENT_ID` / `SECRET` | OAuth GitHub panelu |
-| `OPS_OAUTH_GOOGLE_CLIENT_ID` / `SECRET` | OAuth Google panelu |
-| `OPS_PANEL_PUBLIC_URL` | URL panelu (GitHub Pages) |
-| `OPS_API_PUBLIC_URL` | Publiczny URL API (Fly) |
+| `OPS_OAUTH_*` / `OPS_PANEL_PUBLIC_URL` | Opcjonalny bootstrap OAuth (import do bazy przy pierwszym starcie) |
 | `OPS_SESSION_SIGNING_KEY` | Klucz podpisu sesji HMAC |
 | `OPS_SEED_PEPPER` | Pepper runtime (musi zgadzać się z robotami) |
 | `OPS_SEED_ENVELOPE_*` | Klucze koperty JWT katalogu |

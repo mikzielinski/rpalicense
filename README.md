@@ -22,7 +22,23 @@ Neutralna biblioteka bootstrapu runtime dla UiPath:
   - generowanie/analiza `seed.jwt`,
   - publikacja `seed.jwt` do repo przez GitHub API.
 
-## 1) Build biblioteki
+## NuGet — automatyczna publikacja
+
+Pakiet `UiPath.System.RoboticSecurity` buduje się w CI przy każdej zmianie biblioteki:
+
+- **GitHub Packages** — feed prywatny w repo
+- **`release/windows-uipath/`** — gotowy bundle z `INSTALUJ.cmd` (Windows)
+- Szczegóły: [`docs/NUGET.md`](docs/NUGET.md)
+
+Robot produkcyjny (Fly.io):
+
+```
+OPS_SEED_API_URL=https://rpalicense.fly.dev
+OPS_SEED_PEPPER=test-pepper-ops-runtime-seed-2026
+OPS_SEED_TELEMETRY=1
+```
+
+## 1) Build biblioteki (lokalnie)
 
 ```bash
 cd src/UiPath.System.RoboticSecurity

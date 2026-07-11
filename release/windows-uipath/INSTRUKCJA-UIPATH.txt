@@ -9,7 +9,7 @@ KROK 1 — INSTALACJA (jeden klik)
   Utworzy folder:
     C:\Users\TWOJ_USER\OpsRuntime\
       lib\UiPath.System.RoboticSecurity.dll
-      nuget\UiPath.System.RoboticSecurity.1.0.5.nupkg
+      nuget\UiPath.System.RoboticSecurity.1.0.6.nupkg
       catalog\seed.jwt
 
   Oraz kopie na Pulpicie:
@@ -39,7 +39,20 @@ KROK 4 — Test w Invoke Code
   System.Console.WriteLine("OK: " + profile.ApiEndpoint);
 
 
-KROK 5 — Wymuszenie licencji (odciecie = stop UiPath)
+KROK 5 — Produkcja (API Fly.io)
+--------------------------------
+  Zmienne srodowiskowe na robocie:
+
+    OPS_SEED_API_URL=https://rpalicense.fly.dev
+    OPS_SEED_PEPPER=test-pepper-ops-runtime-seed-2026
+    OPS_SEED_TELEMETRY=1
+    OPS_SEED_KILL_ON_DENY=1
+
+  Telemetria idzie automatycznie na ten sam API (bez osobnego klucza).
+  Szczegoly: docs/NUGET.md
+
+
+KROK 6 — Wymuszenie licencji (odciecie = stop UiPath)
 ------------------------------------------------------
   Dla robotow produkcyjnych ustaw zmienna srodowiskowa (Panel Windows):
     OPS_SEED_KILL_ON_DENY=1
@@ -59,31 +72,24 @@ KROK 5 — Wymuszenie licencji (odciecie = stop UiPath)
   Jesli licencja zostanie odcieta z panelu, bot zostanie zatrzymany.
 
 
-PANEL — publikacja (GitHub Actions + Pages)
-------------------------------------------
-  1. W repo GitHub: Settings -> Secrets -> Actions
-       OPS_API_OPERATOR_KEY = dowolny dlugi klucz
-       OPS_API_ROBOT_KEY    = klucz dla robotow
+PANEL — publikacja licencji
+---------------------------
+  Panel: GitHub Pages + API Fly.io (Neon PostgreSQL).
+  Operator loguje sie w panelu — bez recznej konfiguracji w przegladarce.
 
-  2. W panelu (Pages): klucz operatora + GitHub token (dispatch)
-     URL API zostaw puste.
-
-  Szczegoly: docs/ACTIONS-SETUP.md w repo
+  Szczegoly: api/README.md i docs/NUGET.md w repo
 
 
 TELEMETRIA (widok sprawdzen w panelu)
 -------------------------------------
-  Zalecane — GitHub Actions (bez osobnego serwera):
+  Przy OPS_SEED_API_URL + OPS_SEED_TELEMETRY=1 zdarzenia trafiaja do API Fly.io.
+
+  Alternatywa — GitHub Actions (bez osobnego serwera):
 
     OPS_SEED_TELEMETRY=1
     OPS_SEED_TELEMETRY_DISPATCH=1
-    OPS_SEED_TELEMETRY_API_KEY=<OPS_API_ROBOT_KEY z repo Secrets>
-    OPS_SEED_DISPATCH_TOKEN=ghp_...   (PAT — tylko uruchomienie workflow)
-
-  Alternatywa — wlasny serwer API:
-
-    OPS_SEED_TELEMETRY_API_URL=https://twoja-domena.pl
-    OPS_SEED_TELEMETRY_API_KEY=klucz-robota
+    OPS_SEED_TELEMETRY_API_KEY=<klucz>
+    OPS_SEED_DISPATCH_TOKEN=ghp_...
 
   Legacy — bezposrednio GitHub Contents API:
 

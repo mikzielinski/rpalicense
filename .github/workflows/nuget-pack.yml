@@ -1,0 +1,81 @@
+name: NuGet Pack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/Ops.Runtime.Seed/**'
+      - 'tests/Ops.Runtime.Seed.Tests/**'
+      - 'Ops.Runtime.Seed.sln'
+      - '.github/workflows/nuget-pack.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: nuget-pack
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test library
+        run: dotnet test Ops.Runtime.Seed.sln -c Release --filter "FullyQualifiedName~Ops.Runtime.Seed.Tests" --no-restore false
+
+      - name: Pack NuGet
+        run: |
+          dotnet pack src/Ops.Runtime.Seed/Ops.Runtime.Seed.csproj -c Release -o artifacts/nupkg
+          mkdir -p release/windows-uipath/lib release/windows-uipath/nuget
+          cp src/Ops.Runtime.Seed/bin/Release/net6.0/UiPath.System.RoboticSecurity.dll release/windows-uipath/lib/
+          cp artifacts/nupkg/*.nupkg release/windows-uipath/nuget/
+          ls -la artifacts/nupkg/
+          ls -la release/windows-uipath/nuget/
+
+      - name: Publish to GitHub Packages
+        run: |
+          dotnet nuget push artifacts/nupkg/*.nupkg \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --api-key "${{ secrets.GITHUB_TOKEN }}" \
+            --skip-duplicate
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UiPath.System.RoboticSecurity-nupkg
+          path: |
+            artifacts/nupkg/*.nupkg
+            release/windows-uipath/lib/*.dll
+          retention-days: 90
+
+      - name: Commit Windows release bundle
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release/windows-uipath/lib release/windows-uipath/nuget
+          if git diff --staged --quiet; then
+            echo "Release bundle unchanged."
+            exit 0
+          fi
+          VERSION=$(basename artifacts/nupkg/*.nupkg .nupkg | sed 's/.*\.//')
+          git commit -m "ci: update NuGet package UiPath.System.RoboticSecurity ${VERSION}"
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+            sleep $((attempt * 2))
+          done
+          echo "Push failed after retries."
+          exit 1

@@ -1,6 +1,13 @@
-# Zmienne srodowiskowe — test offline (Panel systemu Windows -> Zmienne srodowiskowe)
+# Zmienne srodowiskowe — robot UiPath (Panel Windows -> Zmienne srodowiskowe)
 # Sciezka dostosuj jesli folder OpsRuntime jest gdzie indziej.
 
+# --- Produkcja (API Fly.io) — zalecane ---
+# OPS_SEED_API_URL=https://rpalicense.fly.dev
+# OPS_SEED_PEPPER=test-pepper-ops-runtime-seed-2026
+# OPS_SEED_TELEMETRY=1
+# OPS_SEED_KILL_ON_DENY=1
+
+# --- Offline / test lokalny ---
 OPS_SEED_CATALOG_FILE=%USERPROFILE%\OpsRuntime\catalog\seed.jwt
 OPS_SEED_PEPPER=test-pepper-ops-runtime-seed-2026
 OPS_SEED_ENVELOPE_PEPPER=test-envelope-pepper-ops-runtime-2026
@@ -9,17 +16,10 @@ OPS_SEED_ENVELOPE_SIGNING_KEY=test-jwt-signing-key-ops-runtime-seed-2026
 # Token testowy (Orchestrator Asset lub Invoke Code):
 # RT-TEST-REPORT-001
 
-# Produkcja: przy odcieciu/wygasnieciu licencji zabij procesy UiPath (domyslnie wlaczone na Windows)
-OPS_SEED_KILL_ON_DENY=1
-
-# Telemetria — GitHub Actions + Pages (zalecane)
+# --- Telemetria alternatywna (bez Fly API) ---
 # OPS_SEED_TELEMETRY=1
 # OPS_SEED_TELEMETRY_DISPATCH=1
-# OPS_SEED_TELEMETRY_API_KEY=klucz-z-repo-secrets
+# OPS_SEED_TELEMETRY_API_KEY=klucz
 # OPS_SEED_DISPATCH_TOKEN=ghp_...
-
-# Telemetria — wlasny serwer API (opcjonalnie)
 # OPS_SEED_TELEMETRY_API_URL=https://twoja-domena.pl
-
-# Legacy: bezposrednio GitHub Contents API
 # OPS_SEED_TELEMETRY_TOKEN=ghp_...
