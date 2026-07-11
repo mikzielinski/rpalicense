@@ -112,6 +112,7 @@ async function enterApp() {
   if (state.panelUser?.isAdmin) {
     await refreshAccountsTable();
     await loadOAuthSetup();
+    await maybeOpenOAuthWizardForAdmin();
   }
   initRobotPackageConfigurator();
   updateXamlInjectTokenFields();
@@ -267,6 +268,28 @@ function bindUi() {
   byId("btnCreateAccount").addEventListener("click", createPanelAccount);
   byId("btnLinkOAuth").addEventListener("click", linkPanelAccountOAuth);
   byId("btnSaveOAuthSetup").addEventListener("click", saveOAuthSetup);
+  byId("btnOpenOAuthWizard").addEventListener("click", () => openOAuthWizard());
+  byId("btnCloseOAuthWizard").addEventListener("click", closeOAuthWizard);
+  byId("btnOAuthWizardBack").addEventListener("click", oauthWizardBack);
+  byId("btnOAuthWizardNext").addEventListener("click", oauthWizardNext);
+  byId("btnOAuthWizardSkip").addEventListener("click", closeOAuthWizard);
+  byId("btnCopyWizardCallback").addEventListener("click", copyWizardCallbackUrl);
+  byId("oauthWizardOverlay").addEventListener("click", (event) => {
+    if (event.target === byId("oauthWizardOverlay")) closeOAuthWizard();
+  });
+  for (const btn of document.querySelectorAll("[data-wizard-provider]")) {
+    btn.addEventListener("click", () => selectOAuthWizardProvider(btn.dataset.wizardProvider));
+  }
+  for (const id of ["wizardPanelUrl", "wizardApiUrl"]) {
+    byId(id).addEventListener("input", () => {
+      if (oauthWizardState.step >= 3) updateWizardCallbackAndInstructions();
+    });
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !byId("oauthWizardOverlay").classList.contains("hidden")) {
+      closeOAuthWizard();
+    }
+  });
   byId("btnDownloadRobotPackage").addEventListener("click", downloadSelectedRobotPackages);
   byId("btnInjectXaml").addEventListener("click", injectXamlAndDownload);
   byId("btnPatchUiPathProject").addEventListener("click", patchUiPathProjectAndDownload);
@@ -961,14 +984,55 @@ async function saveOAuthSetup() {
     return;
   }
 
+  const body = buildOAuthSetupBodyFromForm();
+  if (!body) return;
+
+  try {
+    await apiRequest("/v1/panel/oauth/setup", "PUT", body);
+    byId("oauthGithubClientSecret").value = "";
+    byId("oauthGoogleClientSecret").value = "";
+    setStatus("accountsStatus", "Zapisano konfigurację OAuth.", "ok");
+    await loadOAuthSetup();
+    await loadOAuthProviders();
+  } catch (error) {
+    setStatus("accountsStatus", error.message, "bad");
+  }
+}
+
+const oauthWizardState = {
+  step: 1,
+  provider: "",
+  setup: null,
+  autoPrompted: false
+};
+
+function isOAuthProviderReady(provider) {
+  if (!provider) return false;
+  return Boolean(provider.enabled && provider.clientId?.trim() && provider.secretConfigured);
+}
+
+function isAnyOAuthProviderReady(setup) {
+  return isOAuthProviderReady(setup?.github) || isOAuthProviderReady(setup?.google);
+}
+
+function providerLabel(provider) {
+  return provider === "google" ? "Google" : "GitHub";
+}
+
+function buildOAuthCallbackUrl(apiPublicUrl, provider) {
+  const api = (apiPublicUrl || "").trim().replace(/\/$/, "");
+  return `${api}/v1/panel/oauth/${provider}/callback`;
+}
+
+function buildOAuthSetupBodyFromForm() {
   const panelPublicUrl = byId("oauthPanelUrl").value.trim();
   const apiPublicUrl = byId("oauthApiUrl").value.trim();
   if (!panelPublicUrl || !apiPublicUrl) {
     setStatus("accountsStatus", "Podaj URL panelu i URL API.", "warn");
-    return;
+    return null;
   }
 
-  const body = {
+  return {
     panelPublicUrl,
     apiPublicUrl,
     github: {
@@ -982,17 +1046,333 @@ async function saveOAuthSetup() {
       clientSecret: byId("oauthGoogleClientSecret").value
     }
   };
+}
+
+function buildOAuthSetupBodyFromWizard() {
+  const panelPublicUrl = byId("wizardPanelUrl").value.trim();
+  const apiPublicUrl = byId("wizardApiUrl").value.trim();
+  if (!panelPublicUrl || !apiPublicUrl) {
+    setWizardStatus("Podaj URL panelu i URL API.", "warn");
+    return null;
+  }
+
+  const setup = oauthWizardState.setup ?? {};
+  const provider = oauthWizardState.provider;
+  const clientId = byId("wizardClientId").value.trim();
+  const clientSecret = byId("wizardClientSecret").value;
+  const enabled = byId("wizardProviderEnabled").checked;
+
+  const github = {
+    enabled: setup.github?.enabled ?? false,
+    clientId: setup.github?.clientId ?? "",
+    clientSecret: ""
+  };
+  const google = {
+    enabled: setup.google?.enabled ?? false,
+    clientId: setup.google?.clientId ?? "",
+    clientSecret: ""
+  };
+
+  const target = provider === "google" ? google : github;
+  target.enabled = enabled;
+  target.clientId = clientId;
+  target.clientSecret = clientSecret;
+
+  return { panelPublicUrl, apiPublicUrl, github, google };
+}
+
+async function maybeOpenOAuthWizardForAdmin() {
+  if (!state.panelUser?.isAdmin || oauthWizardState.autoPrompted) return;
 
   try {
-    await apiRequest("/v1/panel/oauth/setup", "PUT", body);
-    byId("oauthGithubClientSecret").value = "";
-    byId("oauthGoogleClientSecret").value = "";
-    setStatus("accountsStatus", "Zapisano konfigurację OAuth.", "ok");
-    await loadOAuthSetup();
-    await loadOAuthProviders();
-  } catch (error) {
-    setStatus("accountsStatus", error.message, "bad");
+    const setup = await apiRequest("/v1/panel/oauth/setup", "GET");
+    oauthWizardState.setup = setup;
+    if (!isAnyOAuthProviderReady(setup)) {
+      oauthWizardState.autoPrompted = true;
+      openOAuthWizard(null, setup);
+      setStatus(
+        "accountsStatus",
+        "OAuth nie jest jeszcze skonfigurowany — użyj kreatora, aby włączyć logowanie przez GitHub lub Google.",
+        "warn"
+      );
+    }
+  } catch {
+    // ignore — flat form already shows OAuth errors
   }
+}
+
+function setWizardStatus(message, tone = "") {
+  setStatus("oauthWizardStatus", message, tone);
+}
+
+function openOAuthWizard(preselectedProvider = null, setup = null) {
+  if (!state.panelUser?.isAdmin) {
+    setStatus("accountsStatus", "Brak uprawnień administratora.", "bad");
+    return;
+  }
+
+  oauthWizardState.step = 1;
+  oauthWizardState.provider = preselectedProvider || "";
+  oauthWizardState.setup = setup;
+  setWizardStatus("", "");
+
+  const overlay = byId("oauthWizardOverlay");
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+
+  if (setup) {
+    populateOAuthWizardFromSetup(setup);
+    renderOAuthWizardStep();
+    return;
+  }
+
+  loadOAuthSetup()
+    .then(() => apiRequest("/v1/panel/oauth/setup", "GET"))
+    .then((loaded) => {
+      oauthWizardState.setup = loaded;
+      populateOAuthWizardFromSetup(loaded);
+      if (preselectedProvider) {
+        selectOAuthWizardProvider(preselectedProvider);
+      }
+      renderOAuthWizardStep();
+    })
+    .catch((error) => {
+      populateOAuthWizardFromSetup(null);
+      setWizardStatus(error.message, "bad");
+      renderOAuthWizardStep();
+    });
+}
+
+function closeOAuthWizard() {
+  const overlay = byId("oauthWizardOverlay");
+  overlay.classList.add("hidden");
+  overlay.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+  setWizardStatus("", "");
+}
+
+function populateOAuthWizardFromSetup(setup) {
+  byId("wizardPanelUrl").value = setup?.panelPublicUrl || detectPanelPublicUrl();
+  byId("wizardApiUrl").value = setup?.apiPublicUrl || apiBaseUrl();
+
+  const provider = oauthWizardState.provider;
+  const providerSetup = provider === "google" ? setup?.google : setup?.github;
+  byId("wizardClientId").value = providerSetup?.clientId ?? "";
+  byId("wizardClientSecret").value = "";
+  byId("wizardProviderEnabled").checked = providerSetup?.enabled ?? true;
+
+  const hint = byId("wizardSecretHint");
+  if (providerSetup?.secretConfigured) {
+    hint.textContent = `Masz już zapisany secret (${providerSetup.secretHint || "••••"}). Zostaw pole puste, aby go zachować.`;
+  } else {
+    hint.textContent = "Secret nie jest jeszcze zapisany — wklej go z konsoli providera.";
+  }
+
+  updateWizardCallbackAndInstructions();
+}
+
+function selectOAuthWizardProvider(provider) {
+  oauthWizardState.provider = provider;
+  for (const btn of document.querySelectorAll("[data-wizard-provider]")) {
+    btn.classList.toggle("selected", btn.dataset.wizardProvider === provider);
+  }
+
+  const setup = oauthWizardState.setup;
+  const providerSetup = provider === "google" ? setup?.google : setup?.github;
+  byId("wizardClientId").value = providerSetup?.clientId ?? "";
+  byId("wizardClientSecret").value = "";
+  byId("wizardProviderEnabled").checked = providerSetup?.enabled ?? true;
+
+  const hint = byId("wizardSecretHint");
+  if (providerSetup?.secretConfigured) {
+    hint.textContent = `Masz już zapisany secret (${providerSetup.secretHint || "••••"}). Zostaw pole puste, aby go zachować.`;
+  } else {
+    hint.textContent = "Secret nie jest jeszcze zapisany — wklej go z konsoli providera.";
+  }
+
+  byId("wizardProviderLabel").textContent = providerLabel(provider);
+  byId("wizardProviderLabel2").textContent = providerLabel(provider);
+  updateWizardCallbackAndInstructions();
+  setWizardStatus("", "");
+}
+
+function updateWizardCallbackAndInstructions() {
+  const provider = oauthWizardState.provider;
+  const panelUrl = byId("wizardPanelUrl").value.trim() || detectPanelPublicUrl();
+  const apiUrl = byId("wizardApiUrl").value.trim() || apiBaseUrl();
+  const callbackUrl = buildOAuthCallbackUrl(apiUrl, provider || "github");
+
+  byId("wizardCallbackUrl").value = callbackUrl;
+
+  const intro = byId("oauthWizardConsoleIntro");
+  const steps = byId("oauthWizardConsoleSteps");
+  steps.innerHTML = "";
+
+  if (provider === "github") {
+    intro.textContent = "Utwórz OAuth App w GitHub i wklej poniższy callback URL.";
+    steps.innerHTML = `
+      <li>Otwórz <a href="https://github.com/settings/developers" target="_blank" rel="noopener">GitHub Developer Settings</a> → OAuth Apps → <strong>New OAuth App</strong>.</li>
+      <li><strong>Application name</strong>: np. Ops Runtime Panel.</li>
+      <li><strong>Homepage URL</strong>: <code>${escapeHtml(panelUrl)}</code></li>
+      <li><strong>Authorization callback URL</strong>: skopiuj pole poniżej.</li>
+      <li>Po utworzeniu skopiuj <strong>Client ID</strong> i wygeneruj <strong>Client Secret</strong>.</li>
+    `;
+  } else if (provider === "google") {
+    intro.textContent = "Utwórz klienta OAuth w Google Cloud Console i wklej callback URL.";
+    steps.innerHTML = `
+      <li>Otwórz <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Credentials</a> → <strong>Create credentials</strong> → OAuth client ID.</li>
+      <li>Typ aplikacji: <strong>Web application</strong>.</li>
+      <li><strong>Authorized JavaScript origins</strong>: <code>${escapeHtml(panelUrl)}</code></li>
+      <li><strong>Authorized redirect URIs</strong>: skopiuj pole poniżej.</li>
+      <li>Skopiuj <strong>Client ID</strong> i <strong>Client secret</strong> do następnego kroku.</li>
+    `;
+  } else {
+    intro.textContent = "Najpierw wybierz providera w kroku 1.";
+  }
+}
+
+async function copyWizardCallbackUrl() {
+  const value = byId("wizardCallbackUrl").value.trim();
+  if (!value) {
+    setWizardStatus("Brak callback URL do skopiowania.", "warn");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(value);
+    setWizardStatus("Skopiowano callback URL.", "ok");
+  } catch {
+    byId("wizardCallbackUrl").select();
+    document.execCommand("copy");
+    setWizardStatus("Skopiowano callback URL.", "ok");
+  }
+}
+
+function renderOAuthWizardStep() {
+  const step = oauthWizardState.step;
+  const totalSteps = 5;
+
+  for (let i = 1; i <= totalSteps; i += 1) {
+    byId(`oauthWizardStep${i}`).classList.toggle("hidden", i !== step);
+  }
+
+  for (const item of byId("oauthWizardSteps").querySelectorAll("li")) {
+    const itemStep = Number(item.dataset.step);
+    item.classList.toggle("active", itemStep === step);
+    item.classList.toggle("done", itemStep < step);
+  }
+
+  byId("oauthWizardProgressBar").style.width = `${(step / totalSteps) * 100}%`;
+  byId("btnOAuthWizardBack").classList.toggle("hidden", step <= 1);
+  byId("btnOAuthWizardSkip").classList.toggle("hidden", step >= 5);
+
+  const nextBtn = byId("btnOAuthWizardNext");
+  if (step === 4) {
+    nextBtn.textContent = "Zapisz i włącz";
+  } else if (step === 5) {
+    nextBtn.textContent = "Zamknij";
+  } else {
+    nextBtn.textContent = "Dalej";
+  }
+}
+
+function oauthWizardBack() {
+  if (oauthWizardState.step <= 1) return;
+  oauthWizardState.step -= 1;
+  if (oauthWizardState.step === 3) updateWizardCallbackAndInstructions();
+  setWizardStatus("", "");
+  renderOAuthWizardStep();
+}
+
+async function oauthWizardNext() {
+  const step = oauthWizardState.step;
+
+  if (step === 1) {
+    if (!oauthWizardState.provider) {
+      setWizardStatus("Wybierz GitHub lub Google.", "warn");
+      return;
+    }
+    oauthWizardState.step = 2;
+    renderOAuthWizardStep();
+    return;
+  }
+
+  if (step === 2) {
+    const panelUrl = byId("wizardPanelUrl").value.trim();
+    const apiUrl = byId("wizardApiUrl").value.trim();
+    if (!panelUrl || !apiUrl) {
+      setWizardStatus("Podaj URL panelu i URL API.", "warn");
+      return;
+    }
+    updateWizardCallbackAndInstructions();
+    oauthWizardState.step = 3;
+    renderOAuthWizardStep();
+    return;
+  }
+
+  if (step === 3) {
+    oauthWizardState.step = 4;
+    byId("wizardProviderLabel").textContent = providerLabel(oauthWizardState.provider);
+    byId("wizardProviderLabel2").textContent = providerLabel(oauthWizardState.provider);
+    renderOAuthWizardStep();
+    return;
+  }
+
+  if (step === 4) {
+    const clientId = byId("wizardClientId").value.trim();
+    const clientSecret = byId("wizardClientSecret").value;
+    const providerSetup = oauthWizardState.provider === "google"
+      ? oauthWizardState.setup?.google
+      : oauthWizardState.setup?.github;
+
+    if (!clientId) {
+      setWizardStatus("Podaj Client ID.", "warn");
+      return;
+    }
+    if (!clientSecret && !providerSetup?.secretConfigured) {
+      setWizardStatus("Podaj Client Secret (lub zapisz go wcześniej).", "warn");
+      return;
+    }
+
+    const body = buildOAuthSetupBodyFromWizard();
+    if (!body) return;
+
+    try {
+      await apiRequest("/v1/panel/oauth/setup", "PUT", body);
+      const refreshed = await apiRequest("/v1/panel/oauth/setup", "GET");
+      oauthWizardState.setup = refreshed;
+      await loadOAuthSetup();
+      await loadOAuthProviders();
+      populateOAuthWizardSuccess(refreshed);
+      oauthWizardState.step = 5;
+      setWizardStatus("", "");
+      setStatus("accountsStatus", `Włączono logowanie przez ${providerLabel(oauthWizardState.provider)}.`, "ok");
+      renderOAuthWizardStep();
+    } catch (error) {
+      setWizardStatus(error.message, "bad");
+    }
+    return;
+  }
+
+  if (step === 5) {
+    closeOAuthWizard();
+  }
+}
+
+function populateOAuthWizardSuccess(setup) {
+  const provider = oauthWizardState.provider;
+  const label = providerLabel(provider);
+  const ready = isOAuthProviderReady(provider === "google" ? setup.google : setup.github);
+
+  byId("oauthWizardSuccessText").textContent = ready
+    ? `${label} jest aktywny. Na ekranie logowania pojawią się przyciski OAuth dla użytkowników z powiązanym kontem.`
+    : `Zapisano ustawienia ${label}. Sprawdź, czy provider jest włączony i ma poprawne klucze.`;
+
+  const preview = byId("oauthWizardLoginPreview");
+  preview.classList.remove("hidden");
+  byId("wizardPreviewGithub").classList.toggle("hidden", !setup.github?.enabled || !setup.github?.clientId);
+  byId("wizardPreviewGoogle").classList.toggle("hidden", !setup.google?.enabled || !setup.google?.clientId);
 }
 
 async function linkPanelAccountOAuth() {
