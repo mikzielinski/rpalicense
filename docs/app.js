@@ -1,5 +1,5 @@
 const byId = (id) => document.getElementById(id);
-const LS_KEY = "ops-runtime-panel-v2";
+const PANEL_SESSION_KEY = "ops-panel-session-v1";
 
 /** @type {{ entries: object[] }} */
 let catalog = { entries: [] };
@@ -13,6 +13,7 @@ const state = {
   defaults: {},
   dirty: false,
   liveLoadedAt: null,
+  panelUser: null,
   operatorSession: null,
   operatorSessionExp: 0
 };
@@ -24,9 +25,41 @@ async function init() {
   loadSettings();
   await ensureSealJwkFromDefaults();
   bindUi();
+
+  if (restorePanelSession()) {
+    await enterApp();
+  } else {
+    showLoginScreen();
+  }
+}
+
+async function enterApp() {
+  showAppShell();
   setDefaultDates();
-  await refreshFromLive();
+  try {
+    await refreshFromLive();
+  } catch (error) {
+    setHeader(`Błąd po zalogowaniu: ${error.message}`, "bad");
+  }
   renderAll();
+  if (state.panelUser?.isAdmin) {
+    await refreshAccountsTable();
+  }
+}
+
+function showLoginScreen() {
+  byId("loginScreen").classList.remove("hidden");
+  byId("appShell").classList.add("hidden");
+}
+
+function showAppShell() {
+  byId("loginScreen").classList.add("hidden");
+  byId("appShell").classList.remove("hidden");
+  const user = state.panelUser;
+  byId("headerUser").textContent = user
+    ? `${user.username}${user.isAdmin ? " (admin)" : ""}`
+    : "";
+  byId("accountsCard").classList.toggle("hidden", !user?.isAdmin);
 }
 
 async function loadDefaults() {
@@ -40,16 +73,8 @@ async function loadDefaults() {
 
 function defaultSettings() {
   return {
-    operatorName: state.defaults.operatorName ?? "",
-    ghOwner: state.defaults.ghOwner ?? "",
-    ghRepo: state.defaults.ghRepo ?? "",
-    ghBranch: state.defaults.ghBranch ?? "main",
-    ghSeedPath: state.defaults.ghSeedPath ?? "docs/assets/seed.jwt",
-    ghAuditPath: state.defaults.ghAuditPath ?? "docs/assets/audit-log.json",
-    ghRobotEventsPath: state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
     seedUrl: state.defaults.seedUrl ?? "",
     apiBaseUrl: state.defaults.apiBaseUrl ?? "",
-    operatorSecret: state.defaults.operatorSecret ?? "",
     pepper: state.defaults.pepper ?? "test-pepper-ops-runtime-seed-2026",
     envelopePepper: state.defaults.envelopePepper ?? "test-envelope-pepper-ops-runtime-2026",
     jwtSigningKey: state.defaults.jwtSigningKey ?? "test-jwt-signing-key-ops-runtime-seed-2026",
@@ -60,26 +85,7 @@ function defaultSettings() {
 }
 
 function loadSettings() {
-  const defaults = defaultSettings();
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) {
-      state.settings = defaults;
-    } else {
-      const saved = JSON.parse(raw);
-      state.settings = { ...defaults, ...saved };
-      for (const key of Object.keys(defaults)) {
-        const value = state.settings[key];
-        if ((value === undefined || value === null || value === "") && defaults[key]) {
-          state.settings[key] = defaults[key];
-        }
-      }
-    }
-  } catch {
-    state.settings = defaults;
-  }
-  applySettingsToForm();
-  updateJwkHint();
+  state.settings = defaultSettings();
 }
 
 async function ensureSealJwkFromDefaults() {
@@ -96,70 +102,90 @@ async function ensureSealJwkFromDefaults() {
     const jwk = (await fetchText(url)).trim();
     parseSealJwk(jwk);
     state.settings.sealJwk = jwk;
-    byId("cfgSealJwk").value = jwk;
-    localStorage.setItem(LS_KEY, JSON.stringify(state.settings));
-    updateJwkHint();
   } catch (error) {
     console.warn("Nie udało się załadować JWK z panel.defaults.json:", error);
   }
 }
 
-function saveSettingsFromForm() {
-  const tokenInput = byId("cfgGhToken").value.trim();
-  const operatorSecretInput = byId("cfgOperatorSecret").value.trim();
-  const previous = state.settings ?? {};
-  state.settings = {
-    operatorName: byId("cfgOperator").value.trim(),
-    ghOwner: byId("cfgGhOwner").value.trim(),
-    ghRepo: byId("cfgGhRepo").value.trim(),
-    ghBranch: byId("cfgGhBranch").value.trim() || "main",
-    ghSeedPath: previous.ghSeedPath ?? state.defaults.ghSeedPath ?? "docs/assets/seed.jwt",
-    ghAuditPath: previous.ghAuditPath ?? state.defaults.ghAuditPath ?? "docs/assets/audit-log.json",
-    ghRobotEventsPath: previous.ghRobotEventsPath ?? state.defaults.ghRobotEventsPath ?? "docs/assets/robot-events.json",
-    seedUrl: byId("cfgSeedUrl").value.trim(),
-    apiBaseUrl: byId("cfgApiBaseUrl").value.trim(),
-    operatorSecret: operatorSecretInput || previous.operatorSecret || previous.apiKey || "",
-    ghToken: tokenInput || previous.ghToken || "",
-    pepper: byId("cfgPepper").value,
-    envelopePepper: byId("cfgEnvelopePepper").value,
-    jwtSigningKey: byId("cfgJwtSigningKey").value,
-    issuer: byId("cfgIssuer").value.trim(),
-    audience: byId("cfgAudience").value.trim(),
-    sealJwk: byId("cfgSealJwk").value.trim()
-  };
-  localStorage.setItem(LS_KEY, JSON.stringify(state.settings));
+function saveSettingsFromForm() {}
+
+function restorePanelSession() {
+  try {
+    const raw = sessionStorage.getItem(PANEL_SESSION_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved?.sessionToken || !saved?.username) return false;
+    if (saved.expiresAt && Date.parse(saved.expiresAt) <= Date.now()) {
+      sessionStorage.removeItem(PANEL_SESSION_KEY);
+      return false;
+    }
+    state.panelUser = saved;
+    state.operatorSession = saved.sessionToken;
+    state.operatorSessionExp = saved.expiresAt ? Date.parse(saved.expiresAt) : Date.now() + 25 * 60 * 1000;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function applySettingsToForm() {
-  const s = state.settings;
-  byId("cfgOperator").value = s.operatorName ?? "";
-  byId("cfgGhOwner").value = s.ghOwner ?? "";
-  byId("cfgGhRepo").value = s.ghRepo ?? "";
-  byId("cfgGhBranch").value = s.ghBranch ?? "main";
-  byId("cfgSeedUrl").value = s.seedUrl ?? "";
-  byId("cfgApiBaseUrl").value = s.apiBaseUrl ?? "";
-  byId("cfgOperatorSecret").value = s.operatorSecret ?? s.apiKey ?? "";
-  byId("cfgGhToken").value = s.ghToken ?? "";
-  byId("cfgPepper").value = s.pepper ?? "";
-  byId("cfgEnvelopePepper").value = s.envelopePepper ?? "";
-  byId("cfgJwtSigningKey").value = s.jwtSigningKey ?? "";
-  byId("cfgIssuer").value = s.issuer ?? "";
-  byId("cfgAudience").value = s.audience ?? "";
-  byId("cfgSealJwk").value = s.sealJwk ?? "";
+function persistPanelSession(user) {
+  state.panelUser = user;
+  state.operatorSession = user.sessionToken;
+  state.operatorSessionExp = user.expiresAt ? Date.parse(user.expiresAt) : Date.now() + 25 * 60 * 1000;
+  sessionStorage.setItem(PANEL_SESSION_KEY, JSON.stringify(user));
+}
+
+function clearPanelSession() {
+  state.panelUser = null;
+  state.operatorSession = null;
+  state.operatorSessionExp = 0;
+  sessionStorage.removeItem(PANEL_SESSION_KEY);
+}
+
+async function loginPanel(username, password) {
+  const result = await apiPostPublic("/v1/panel/login", { username, password });
+  if (!result.sessionToken) {
+    throw new Error("API nie zwróciło sesji.");
+  }
+  persistPanelSession({
+    username: result.username ?? username,
+    isAdmin: Boolean(result.isAdmin),
+    sessionToken: result.sessionToken,
+    expiresAt: result.expiresAt ?? null
+  });
+}
+
+async function logoutPanel() {
+  clearPanelSession();
+  catalog = { entries: [] };
+  auditLog = [];
+  robotEvents = [];
+  showLoginScreen();
+  setStatus("loginStatus", "", "");
 }
 
 function bindUi() {
-  byId("btnSaveSettings").addEventListener("click", () => {
-    saveSettingsFromForm();
-    setStatus("settingsStatus", "Ustawienia zapisane w przeglądarce.", "ok");
+  byId("loginForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const username = byId("loginUsername").value.trim();
+    const password = byId("loginPassword").value;
+    setStatus("loginStatus", "Logowanie…", "");
+    try {
+      await loginPanel(username, password);
+      byId("loginPassword").value = "";
+      await enterApp();
+      setStatus("loginStatus", "", "");
+    } catch (error) {
+      setStatus("loginStatus", error.message, "bad");
+    }
   });
+
+  byId("btnLogout").addEventListener("click", () => logoutPanel());
   byId("btnRefreshLive").addEventListener("click", () => refreshFromLive(true));
   byId("btnPublishAll").addEventListener("click", () => publishAll());
-  byId("btnTestGitHub").addEventListener("click", testPublishConnection);
-  byId("btnLoadTestJwk").addEventListener("click", loadTestJwk);
-  byId("cfgSealJwk").addEventListener("input", updateJwkHint);
   byId("btnCreateLicense").addEventListener("click", createLicense);
   byId("btnCheckLive").addEventListener("click", checkLiveStatus);
+  byId("btnCreateAccount").addEventListener("click", createPanelAccount);
   byId("btnClearLocalLog").addEventListener("click", () => {
     auditLog = [];
     renderAuditTable();
@@ -176,57 +202,38 @@ function setDefaultDates() {
 }
 
 function operatorWho() {
-  return state.settings.operatorName?.trim() || "operator";
+  return state.panelUser?.username?.trim() || "operator";
 }
 
 function settingsReady() {
   const s = state.settings;
   return Boolean(
-    s.seedUrl && s.pepper && s.envelopePepper && s.jwtSigningKey &&
-    s.issuer && s.audience && s.sealJwk
+    s.apiBaseUrl &&
+    s.pepper && s.envelopePepper && s.jwtSigningKey &&
+    s.issuer && s.audience && s.sealJwk &&
+    state.panelUser?.sessionToken
   );
 }
 
 function usesApiPublish() {
-  const s = state.settings;
-  return Boolean(s.apiBaseUrl?.trim() && (s.operatorSecret?.trim() || s.apiKey?.trim()));
+  return Boolean(apiBaseUrl() && state.panelUser?.sessionToken);
 }
 
 function usesActionsDispatch() {
-  const s = state.settings;
-  return Boolean(
-    !usesApiPublish() &&
-    s.ghOwner?.trim() &&
-    s.ghRepo?.trim() &&
-    s.ghToken?.trim() &&
-    (s.operatorSecret?.trim() || s.apiKey?.trim())
-  );
+  return false;
 }
 
 function publishReady() {
-  saveSettingsFromForm();
   const s = state.settings;
   const missing = [];
-  if (!s.seedUrl) missing.push("URL seed.jwt");
+  if (!state.panelUser?.sessionToken) missing.push("Sesja panelu");
+  if (!s.apiBaseUrl) missing.push("URL API");
   if (!s.pepper) missing.push("Pepper");
   if (!s.envelopePepper) missing.push("Envelope pepper");
   if (!s.jwtSigningKey) missing.push("JWT signing key");
   if (!s.issuer) missing.push("Issuer");
   if (!s.audience) missing.push("Audience");
   if (!s.sealJwk) missing.push("JWK RSA");
-  if (usesApiPublish()) {
-    if (!s.apiBaseUrl) missing.push("URL API");
-    if (!s.operatorSecret && !s.apiKey) missing.push("Sekret operatora");
-  } else if (usesActionsDispatch()) {
-    if (!s.ghOwner) missing.push("GitHub owner");
-    if (!s.ghRepo) missing.push("GitHub repo");
-    if (!s.ghToken) missing.push("GitHub token (dispatch)");
-    if (!s.operatorSecret && !s.apiKey) missing.push("Klucz operatora (repo secret)");
-  } else {
-    if (!s.ghOwner) missing.push("GitHub owner");
-    if (!s.ghRepo) missing.push("GitHub repo");
-    if (!s.ghToken) missing.push("GitHub token / klucze");
-  }
   state.publishMissing = missing;
   return missing.length === 0;
 }
@@ -246,7 +253,10 @@ async function refreshCatalogFromPages() {
 }
 
 async function refreshFromLive(manual = false) {
-  saveSettingsFromForm();
+  if (!state.panelUser?.sessionToken) {
+    setHeader("Zaloguj się do panelu.", "warn");
+    return;
+  }
   if (state.dirty && manual) {
     const ok = confirm(
       "Masz nieopublikowane zmiany lokalne. Odświeżenie nadpisze je danymi z serwera. Kontynuować?"
@@ -254,17 +264,13 @@ async function refreshFromLive(manual = false) {
     if (!ok) return;
   }
   if (!settingsReady()) {
-    setHeader("Skonfiguruj ustawienia (sekrety + URL seed.jwt).", "warn");
+    setHeader("Brak konfiguracji panelu lub sesji.", "warn");
     if (manual) setStatus("publishStatus", "Brak kompletnych ustawień.", "warn");
     return;
   }
 
   try {
-    if (usesApiPublish()) {
-      await syncCatalogFromServer();
-    } else {
-      await refreshCatalogFromPages();
-    }
+    await syncCatalogFromServer();
     setHeader(`Załadowano ${catalog.entries.length} licencji z serwera (${state.liveLoadedAt.toLocaleString()}).`, "ok");
     if (manual) {
       appendAudit("refresh", null, "ok", "Odświeżono katalog z Pages");
@@ -337,10 +343,6 @@ function apiBaseUrl() {
   return (state.settings.apiBaseUrl ?? "").trim().replace(/\/$/, "");
 }
 
-function operatorSecret() {
-  return (state.settings.operatorSecret ?? state.settings.apiKey ?? "").trim();
-}
-
 function parseSessionExp(sessionToken) {
   try {
     const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(sessionToken.split(".")[0])));
@@ -385,55 +387,20 @@ async function apiPostPublic(path, body) {
   return json ?? {};
 }
 
-async function computeOperatorProof(operatorSecretValue, challengeId, serverNonce, clientNonce, operatorId) {
-  const keyBytes = await deriveSha256Key(operatorSecretValue);
-  const message = `${challengeId}|${serverNonce}|${clientNonce}|${operatorId}|${operatorId}`;
-  return hmacSha256RawKeyBase64Url(keyBytes, message);
-}
-
-async function createOperatorSession() {
-  const operatorId = operatorWho();
-  const secret = operatorSecret();
-  if (!secret) throw new Error("Brak sekretu operatora.");
-
-  const challenge = await apiPostPublic("/v1/operator/challenge", { operatorId });
-  const clientNonce = toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
-  const proof = await computeOperatorProof(
-    secret,
-    challenge.challengeId,
-    challenge.serverNonce,
-    clientNonce,
-    operatorId
-  );
-  const session = await apiPostPublic("/v1/operator/session", {
-    operatorId,
-    challengeId: challenge.challengeId,
-    clientNonce,
-    proof
-  });
-
-  if (!session.sessionToken) {
-    throw new Error("API nie zwróciło sesji operatora.");
-  }
-
-  state.operatorSession = session.sessionToken;
-  state.operatorSessionExp = parseSessionExp(session.sessionToken);
-  return session.sessionToken;
-}
-
 async function ensureOperatorSession() {
   const now = Date.now();
   if (state.operatorSession && state.operatorSessionExp > now + 60_000) {
     return state.operatorSession;
   }
-  return createOperatorSession();
+  clearPanelSession();
+  showLoginScreen();
+  throw new Error("Sesja wygasła — zaloguj się ponownie.");
 }
 
 async function apiRequest(path, method, body = null, retried = false) {
   const base = apiBaseUrl();
-  const secret = operatorSecret();
-  if (!base || !secret) {
-    throw new Error("Brak URL API lub sekretu operatora.");
+  if (!base || !state.panelUser?.sessionToken) {
+    throw new Error("Brak URL API lub sesji panelu.");
   }
 
   const session = await ensureOperatorSession();
@@ -467,14 +434,14 @@ async function apiRequest(path, method, body = null, retried = false) {
   }
 
   if (resp.status === 401 && !retried) {
-    state.operatorSession = null;
-    state.operatorSessionExp = 0;
-    return apiRequest(path, method, body, true);
+    clearPanelSession();
+    showLoginScreen();
+    throw new Error("Sesja wygasła — zaloguj się ponownie.");
   }
 
   if (!resp.ok) {
     const msg = json?.error ?? json?.message ?? text?.slice(0, 300) ?? resp.statusText;
-    if (resp.status === 401) throw new Error(`API 401 — nieprawidłowy sekret operatora: ${msg}`);
+    if (resp.status === 401) throw new Error(`Nieprawidłowa sesja: ${msg}`);
     if (resp.status === 403) throw new Error(`API 403 — brak uprawnień: ${msg}`);
     throw new Error(`API ${resp.status}: ${msg}`);
   }
@@ -814,95 +781,66 @@ function parseSealJwk(raw) {
   }
 }
 
-function updateJwkHint() {
-  const len = byId("cfgSealJwk").value.trim().length;
-  const el = byId("jwkHint");
-  if (!el) return;
-  if (len === 0) {
-    el.textContent = "Wymagany pełny JWK (~2400 znaków).";
-    el.className = "hint";
-  } else if (len < 2000) {
-    el.textContent = `JWK za krótki: ${len} znaków (prawdopodobnie ucięty przy wklejaniu).`;
-    el.className = "hint bad";
-  } else {
-    el.textContent = `JWK OK: ${len} znaków.`;
-    el.className = "hint ok";
-  }
-}
-
-async function loadTestJwk() {
-  setStatus("settingsStatus", "Ładuję klucz testowy z repo…", "");
+async function refreshAccountsTable() {
+  if (!state.panelUser?.isAdmin) return;
   try {
-    const url =
-      "https://raw.githubusercontent.com/mikzielinski/rpalicense/main/test-fixtures/keys/seal.private.jwk";
-    const jwk = (await fetchText(url)).trim();
-    parseSealJwk(jwk);
-    byId("cfgSealJwk").value = jwk;
-    saveSettingsFromForm();
-    updateJwkHint();
-    setStatus("settingsStatus", "Załadowano klucz testowy. Kliknij Zapisz ustawienia.", "ok");
-  } catch (error) {
-    setStatus("settingsStatus", `Nie udało się załadować JWK: ${error.message}`, "bad");
-  }
-}
+    const json = await apiRequest("/v1/panel/accounts", "GET");
+    const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+    const body = byId("accountsTableBody");
+    body.innerHTML = accounts.map((account) => {
+      const isSelf = account.username === state.panelUser.username;
+      const deleteBtn = isSelf
+        ? ""
+        : `<button type="button" class="small" data-delete-account="${escapeHtml(account.username)}">Usuń</button>`;
+      return `<tr>
+        <td>${escapeHtml(account.username)}</td>
+        <td>${account.isAdmin ? "Administrator" : "Operator"}</td>
+        <td>${escapeHtml(account.createdAt ?? "")}</td>
+        <td>${deleteBtn}</td>
+      </tr>`;
+    }).join("");
 
-async function testPublishConnection() {
-  saveSettingsFromForm();
-  if (usesApiPublish()) {
-    setStatus("settingsStatus", "Testuję połączenie z API (handshake)…", "");
-    try {
-      const healthResp = await fetch(`${apiBaseUrl()}/health`, { headers: { Accept: "application/json" } });
-      const health = healthResp.ok ? await healthResp.json() : { status: "?" };
-      await ensureOperatorSession();
-      await apiRequest("/v1/catalog", "GET");
-      setStatus(
-        "settingsStatus",
-        `OK: API działa (${apiBaseUrl()}), handshake operatora OK, status: ${health?.status ?? "ok"}.`,
-        "ok"
-      );
-    } catch (error) {
-      setStatus("settingsStatus", `API: ${error.message}`, "bad");
-    }
-    return;
-  }
-
-  if (usesActionsDispatch()) {
-    setStatus("settingsStatus", "Testuję GitHub Actions dispatch…", "");
-    try {
-      await dispatchLicenseOps("ping", {
-        apiKey: state.settings.apiKey
+    body.querySelectorAll("[data-delete-account]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const username = button.getAttribute("data-delete-account");
+        if (!username || !confirm(`Usunąć konto ${username}?`)) return;
+        try {
+          await apiRequest(`/v1/panel/accounts/${encodeURIComponent(username)}`, "DELETE");
+          setStatus("accountsStatus", `Usunięto konto ${username}.`, "ok");
+          await refreshAccountsTable();
+        } catch (error) {
+          setStatus("accountsStatus", error.message, "bad");
+        }
       });
-      setStatus(
-        "settingsStatus",
-        "OK: wysłano testowy dispatch do GitHub Actions. Sprawdź zakładkę Actions w repo.",
-        "ok"
-      );
-    } catch (error) {
-      setStatus("settingsStatus", `GitHub Actions: ${error.message}`, "bad");
-    }
+    });
+  } catch (error) {
+    setStatus("accountsStatus", error.message, "bad");
+  }
+}
+
+async function createPanelAccount() {
+  if (!state.panelUser?.isAdmin) {
+    setStatus("accountsStatus", "Brak uprawnień administratora.", "bad");
     return;
   }
 
-  if (!state.settings.ghOwner || !state.settings.ghRepo || !state.settings.ghToken) {
-    return setStatus(
-      "settingsStatus",
-      "Podaj URL API + klucz (zalecane) lub owner/repo/PAT (legacy).",
-      "warn"
-    );
+  const username = byId("newAccountUsername").value.trim();
+  const password = byId("newAccountPassword").value;
+  const isAdmin = byId("newAccountIsAdmin").value === "1";
+  if (username.length < 3 || password.length < 8) {
+    setStatus("accountsStatus", "Login min. 3 znaki, hasło min. 8 znaków.", "warn");
+    return;
   }
-  setStatus("settingsStatus", "Testuję połączenie z GitHub…", "");
+
   try {
-    const info = await githubRequest(
-      `https://api.github.com/repos/${encodeURIComponent(state.settings.ghOwner)}/${encodeURIComponent(state.settings.ghRepo)}`,
-      "GET"
-    );
-    setStatus(
-      "settingsStatus",
-      `OK: repo „${info.full_name}”, domyślny branch „${info.default_branch}”. PAT działa.`,
-      "ok"
-    );
+    await apiRequest("/v1/panel/accounts", "POST", { username, password, isAdmin });
+    byId("newAccountUsername").value = "";
+    byId("newAccountPassword").value = "";
+    byId("newAccountIsAdmin").value = "0";
+    setStatus("accountsStatus", `Dodano konto ${username}.`, "ok");
+    await refreshAccountsTable();
   } catch (error) {
-    setStatus("settingsStatus", `GitHub: ${error.message}`, "bad");
+    setStatus("accountsStatus", error.message, "bad");
   }
 }
 

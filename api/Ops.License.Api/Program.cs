@@ -36,10 +36,12 @@ builder.Services.AddSingleton<CatalogService>();
 if (string.IsNullOrWhiteSpace(databaseOptions.ConnectionString))
 {
     builder.Services.AddSingleton<ILicenseStore, InMemoryLicenseStore>();
+    builder.Services.AddSingleton<IPanelUserStore, InMemoryPanelUserStore>();
 }
 else
 {
     builder.Services.AddSingleton<ILicenseStore, PostgresLicenseStore>();
+    builder.Services.AddSingleton<IPanelUserStore, PostgresPanelUserStore>();
 }
 
 builder.Services.AddCors(options =>
@@ -55,9 +57,25 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 var store = app.Services.GetRequiredService<ILicenseStore>();
+var panelUsers = app.Services.GetRequiredService<IPanelUserStore>();
 try
 {
     await store.EnsureSchemaAsync().ConfigureAwait(false);
+    await panelUsers.EnsureSchemaAsync().ConfigureAwait(false);
+
+    var panelAdminUser = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_PANEL_ADMIN_USERNAME"), "mikolaj") ?? "mikolaj";
+    var panelAdminPassword = FirstNonEmpty(
+        Environment.GetEnvironmentVariable("OPS_PANEL_ADMIN_PASSWORD"),
+        serverSettings.OperatorSecret);
+    if (!string.IsNullOrWhiteSpace(panelAdminPassword))
+    {
+        await panelUsers.EnsureBootstrapAdminAsync(panelAdminUser, panelAdminPassword).ConfigureAwait(false);
+    }
+    else
+    {
+        app.Logger.LogWarning("OPS_PANEL_ADMIN_PASSWORD is not configured — panel login accounts were not bootstrapped.");
+    }
+
     app.Logger.LogInformation("Database schema is ready.");
 }
 catch (Exception ex)
@@ -333,6 +351,119 @@ app.MapGet("/v1/robot-events", async (
 
     var doc = await store.GetRobotEventsAsync(ct).ConfigureAwait(false);
     return Results.Ok(doc);
+});
+
+app.MapPost("/v1/panel/login", async (
+    PanelLoginRequest request,
+    IPanelUserStore panelUsers,
+    SessionTokenService sessions,
+    ServerSettings settings) =>
+{
+    var username = (request.Username ?? string.Empty).Trim();
+    var password = request.Password ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+    {
+        return Results.BadRequest(new { error = "invalid_credentials" });
+    }
+
+    if (string.IsNullOrWhiteSpace(settings.SessionSigningKey))
+    {
+        return Results.Json(new { error = "server_misconfigured" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var user = await panelUsers.FindByUsernameAsync(username).ConfigureAwait(false);
+    if (user is null || !PasswordHasher.Verify(password, user.PasswordHash))
+    {
+        return Results.Json(new { error = "invalid_credentials" }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var sessionToken = sessions.IssueOperator(user.Username, user.IsAdmin);
+    return Results.Ok(new PanelLoginResponse
+    {
+        SessionToken = sessionToken,
+        Username = user.Username,
+        IsAdmin = user.IsAdmin,
+        ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(settings.SessionTtlMinutes).ToString("O")
+    });
+});
+
+app.MapGet("/v1/panel/me", (HttpRequest httpRequest, SessionTokenService sessions) =>
+{
+    if (!SessionAuth.RequireOperator(httpRequest, sessions, out var claims))
+    {
+        return Results.Unauthorized();
+    }
+
+    return Results.Ok(new
+    {
+        username = claims.OperatorId,
+        isAdmin = claims.IsAdmin
+    });
+});
+
+app.MapGet("/v1/panel/accounts", async (
+    HttpRequest httpRequest,
+    SessionTokenService sessions,
+    IPanelUserStore panelUsers,
+    CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireAdmin(httpRequest, sessions, out _))
+    {
+        return Results.Forbid();
+    }
+
+    var accounts = await panelUsers.ListUsersAsync(ct).ConfigureAwait(false);
+    return Results.Ok(new PanelAccountsResponse { Accounts = accounts.ToList() });
+});
+
+app.MapPost("/v1/panel/accounts", async (
+    HttpRequest httpRequest,
+    PanelAccountCreateRequest request,
+    SessionTokenService sessions,
+    IPanelUserStore panelUsers,
+    CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireAdmin(httpRequest, sessions, out _))
+    {
+        return Results.Forbid();
+    }
+
+    var username = (request.Username ?? string.Empty).Trim();
+    var password = request.Password ?? string.Empty;
+    if (username.Length < 3 || password.Length < 8)
+    {
+        return Results.BadRequest(new { error = "username_min_3_password_min_8" });
+    }
+
+    if (await panelUsers.FindByUsernameAsync(username, ct).ConfigureAwait(false) is not null)
+    {
+        return Results.Conflict(new { error = "username_exists" });
+    }
+
+    await panelUsers.CreateUserAsync(username, PasswordHasher.Hash(password), request.IsAdmin, ct).ConfigureAwait(false);
+    return Results.Ok(new { ok = true, username });
+});
+
+app.MapDelete("/v1/panel/accounts/{username}", async (
+    HttpRequest httpRequest,
+    string username,
+    SessionTokenService sessions,
+    IPanelUserStore panelUsers,
+    CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireAdmin(httpRequest, sessions, out var claims))
+    {
+        return Results.Forbid();
+    }
+
+    var normalized = username.Trim();
+    if (string.Equals(claims.OperatorId, normalized, StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "cannot_delete_self" });
+    }
+
+    var deleted = await panelUsers.DeleteUserAsync(normalized, ct).ConfigureAwait(false);
+    return deleted ? Results.Ok(new { ok = true }) : Results.NotFound();
 });
 
 app.Run();

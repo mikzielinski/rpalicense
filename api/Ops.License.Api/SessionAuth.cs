@@ -27,6 +27,17 @@ public static class SessionAuth
         return true;
     }
 
+    public static bool RequireAdmin(HttpRequest request, SessionTokenService sessions, out SessionClaims claims)
+    {
+        if (!RequireOperator(request, sessions, out claims) || !claims.IsAdmin)
+        {
+            claims = new SessionClaims();
+            return false;
+        }
+
+        return true;
+    }
+
     public static bool RequireRuntime(HttpRequest request, SessionTokenService sessions, out SessionClaims claims)
     {
         claims = new SessionClaims();

@@ -84,6 +84,48 @@ public sealed class SeedPublishRequest
     public string? Message { get; set; }
 }
 
+public sealed class PanelLoginRequest
+{
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = string.Empty;
+
+    [JsonPropertyName("password")]
+    public string Password { get; set; } = string.Empty;
+}
+
+public sealed class PanelLoginResponse
+{
+    [JsonPropertyName("sessionToken")]
+    public string SessionToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = string.Empty;
+
+    [JsonPropertyName("isAdmin")]
+    public bool IsAdmin { get; set; }
+
+    [JsonPropertyName("expiresAt")]
+    public string ExpiresAt { get; set; } = string.Empty;
+}
+
+public sealed class PanelAccountCreateRequest
+{
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = string.Empty;
+
+    [JsonPropertyName("password")]
+    public string Password { get; set; } = string.Empty;
+
+    [JsonPropertyName("isAdmin")]
+    public bool IsAdmin { get; set; }
+}
+
+public sealed class PanelAccountsResponse
+{
+    [JsonPropertyName("accounts")]
+    public List<PanelUserDto> Accounts { get; set; } = new();
+}
+
 public sealed class AuditReplaceRequest
 {
     [JsonPropertyName("entries")]

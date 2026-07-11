@@ -22,11 +22,12 @@ public sealed class SessionTokenService
         });
     }
 
-    public string IssueOperator(string operatorId)
+    public string IssueOperator(string operatorId, bool isAdmin = false)
     {
         return Issue("operator", new Dictionary<string, string>
         {
-            ["operatorId"] = operatorId
+            ["operatorId"] = operatorId,
+            ["isAdmin"] = isAdmin ? "1" : "0"
         });
     }
 
@@ -97,6 +98,11 @@ public sealed class SessionTokenService
             claims.OperatorId = operatorId;
         }
 
+        if (fields.TryGetValue("isAdmin", out var isAdmin))
+        {
+            claims.IsAdmin = isAdmin == "1";
+        }
+
         var payloadJson = JsonSerializer.Serialize(claims);
         var payloadPart = ToBase64Url(Encoding.UTF8.GetBytes(payloadJson));
         var sigPart = ToBase64Url(Sign(payloadPart));
@@ -127,4 +133,5 @@ public sealed class SessionClaims
     public string TokenId { get; set; } = string.Empty;
     public string Machine { get; set; } = string.Empty;
     public string OperatorId { get; set; } = string.Empty;
+    public bool IsAdmin { get; set; }
 }
