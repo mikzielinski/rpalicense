@@ -492,15 +492,24 @@ app.MapPatch("/v1/panel/accounts/{username}", async (
     }
 
     var normalized = username.Trim();
-    if (!string.IsNullOrWhiteSpace(request.GithubLogin) &&
-        await panelUsers.FindByGithubLoginAsync(request.GithubLogin, ct).ConfigureAwait(false) is { } githubUser &&
+    var existing = await panelUsers.FindByUsernameAsync(normalized, ct).ConfigureAwait(false);
+    if (existing is null)
+    {
+        return Results.NotFound();
+    }
+
+    var githubLogin = request.GithubLogin ?? existing.GithubLogin;
+    var googleEmail = request.GoogleEmail ?? existing.GoogleEmail;
+
+    if (!string.IsNullOrWhiteSpace(githubLogin) &&
+        await panelUsers.FindByGithubLoginAsync(githubLogin, ct).ConfigureAwait(false) is { } githubUser &&
         !string.Equals(githubUser.Username, normalized, StringComparison.OrdinalIgnoreCase))
     {
         return Results.Conflict(new { error = "github_login_exists" });
     }
 
-    if (!string.IsNullOrWhiteSpace(request.GoogleEmail) &&
-        await panelUsers.FindByGoogleEmailAsync(request.GoogleEmail, ct).ConfigureAwait(false) is { } googleUser &&
+    if (!string.IsNullOrWhiteSpace(googleEmail) &&
+        await panelUsers.FindByGoogleEmailAsync(googleEmail, ct).ConfigureAwait(false) is { } googleUser &&
         !string.Equals(googleUser.Username, normalized, StringComparison.OrdinalIgnoreCase))
     {
         return Results.Conflict(new { error = "google_email_exists" });
@@ -508,8 +517,8 @@ app.MapPatch("/v1/panel/accounts/{username}", async (
 
     var updated = await panelUsers.UpdateUserLinksAsync(
         normalized,
-        request.GithubLogin,
-        request.GoogleEmail,
+        githubLogin,
+        googleEmail,
         ct).ConfigureAwait(false);
     return updated ? Results.Ok(new { ok = true }) : Results.NotFound();
 });

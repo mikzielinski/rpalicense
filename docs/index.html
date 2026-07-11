@@ -88,6 +88,22 @@
         <div class="actions">
           <button id="btnCreateAccount" type="button" class="primary">Dodaj konto</button>
         </div>
+        <h3>Powiąż OAuth (istniejące konto)</h3>
+        <p class="muted">Użytkownik musi już istnieć w systemie. Po powiązaniu może logować się przyciskiem GitHub/Google.</p>
+        <div class="form-grid">
+          <label>Login
+            <input id="linkAccountUsername" type="text" placeholder="np. mikolaj">
+          </label>
+          <label>GitHub login
+            <input id="linkAccountGithub" type="text" placeholder="np. mikzielinski">
+          </label>
+          <label>Google email
+            <input id="linkAccountGoogle" type="email" placeholder="email@gmail.com">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="btnLinkOAuth" type="button">Zapisz powiązania OAuth</button>
+        </div>
         <p id="accountsStatus" class="status"></p>
       </section>
 

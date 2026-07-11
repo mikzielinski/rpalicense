@@ -255,6 +255,7 @@ function bindUi() {
   byId("btnCreateLicense").addEventListener("click", createLicense);
   byId("btnCheckLive").addEventListener("click", checkLiveStatus);
   byId("btnCreateAccount").addEventListener("click", createPanelAccount);
+  byId("btnLinkOAuth").addEventListener("click", linkPanelAccountOAuth);
   byId("btnClearLocalLog").addEventListener("click", () => {
     auditLog = [];
     renderAuditTable();
@@ -861,15 +862,25 @@ async function refreshAccountsTable() {
       const deleteBtn = isSelf
         ? ""
         : `<button type="button" class="small" data-delete-account="${escapeHtml(account.username)}">Usuń</button>`;
+      const linkBtn = `<button type="button" class="small" data-link-account="${escapeHtml(account.username)}" data-github="${escapeHtml(account.githubLogin ?? "")}" data-google="${escapeHtml(account.googleEmail ?? "")}">Powiąż OAuth</button>`;
       return `<tr>
         <td>${escapeHtml(account.username)}</td>
         <td>${account.isAdmin ? "Administrator" : "Operator"}</td>
         <td>${escapeHtml(account.githubLogin ?? "—")}</td>
         <td>${escapeHtml(account.googleEmail ?? "—")}</td>
         <td>${escapeHtml(account.createdAt ?? "")}</td>
-        <td>${deleteBtn}</td>
+        <td>${linkBtn} ${deleteBtn}</td>
       </tr>`;
     }).join("");
+
+    body.querySelectorAll("[data-link-account]").forEach((button) => {
+      button.addEventListener("click", () => {
+        byId("linkAccountUsername").value = button.getAttribute("data-link-account") ?? "";
+        byId("linkAccountGithub").value = button.getAttribute("data-github") ?? "";
+        byId("linkAccountGoogle").value = button.getAttribute("data-google") ?? "";
+        byId("linkAccountGithub").focus();
+      });
+    });
 
     body.querySelectorAll("[data-delete-account]").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -884,6 +895,36 @@ async function refreshAccountsTable() {
         }
       });
     });
+  } catch (error) {
+    setStatus("accountsStatus", error.message, "bad");
+  }
+}
+
+async function linkPanelAccountOAuth() {
+  if (!state.panelUser?.isAdmin) {
+    setStatus("accountsStatus", "Brak uprawnień administratora.", "bad");
+    return;
+  }
+
+  const username = byId("linkAccountUsername").value.trim();
+  const githubLogin = byId("linkAccountGithub").value.trim();
+  const googleEmail = byId("linkAccountGoogle").value.trim().toLowerCase();
+  if (username.length < 3) {
+    setStatus("accountsStatus", "Podaj login istniejącego konta.", "warn");
+    return;
+  }
+  if (!githubLogin && !googleEmail) {
+    setStatus("accountsStatus", "Podaj GitHub login lub Google email.", "warn");
+    return;
+  }
+
+  try {
+    const body = {};
+    if (githubLogin) body.githubLogin = githubLogin;
+    if (googleEmail) body.googleEmail = googleEmail;
+    await apiRequest(`/v1/panel/accounts/${encodeURIComponent(username)}`, "PATCH", body);
+    setStatus("accountsStatus", `Powiązano OAuth dla ${username}.`, "ok");
+    await refreshAccountsTable();
   } catch (error) {
     setStatus("accountsStatus", error.message, "bad");
   }
