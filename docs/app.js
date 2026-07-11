@@ -114,6 +114,7 @@ async function enterApp() {
     await loadOAuthSetup();
   }
   initRobotPackageConfigurator();
+  updateXamlInjectTokenFields();
 }
 
 function showLoginScreen() {
@@ -266,6 +267,8 @@ function bindUi() {
   byId("btnLinkOAuth").addEventListener("click", linkPanelAccountOAuth);
   byId("btnSaveOAuthSetup").addEventListener("click", saveOAuthSetup);
   byId("btnDownloadRobotPackage").addEventListener("click", downloadSelectedRobotPackages);
+  byId("btnInjectXaml").addEventListener("click", injectXamlAndDownload);
+  byId("xamlInjectTokenSource").addEventListener("change", updateXamlInjectTokenFields);
   byId("btnClearLocalLog").addEventListener("click", () => {
     auditLog = [];
     renderAuditTable();
@@ -1643,6 +1646,224 @@ function sanitizeZipSegment(value) {
   return String(value).replace(/[^A-Za-z0-9._-]+/g, "_");
 }
 
+const OPS_RUNTIME_GATE_ID = "InvokeCode_OpsRuntimeGate";
+const OPS_RUNTIME_GATE_NS = "UiPath.System.RoboticSecurity";
+
+function updateXamlInjectTokenFields() {
+  const mode = byId("xamlInjectTokenSource")?.value ?? "env";
+  byId("xamlInjectLicenseWrap")?.classList.toggle("hidden", mode !== "license");
+  byId("xamlInjectCustomWrap")?.classList.toggle("hidden", mode !== "custom");
+}
+
+function renderXamlInjectLicenseSelect() {
+  const select = byId("xamlInjectLicense");
+  if (!select) return;
+
+  const current = select.value;
+  select.innerHTML = "";
+  for (const entry of catalog.entries) {
+    const option = document.createElement("option");
+    option.value = entry.tokenId;
+    option.textContent = `${entry.tokenId} (${entry.owner ?? "-"})`;
+    select.appendChild(option);
+  }
+
+  if (current && [...select.options].some((o) => o.value === current)) {
+    select.value = current;
+  }
+
+  updateXamlInjectTokenFields();
+}
+
+function xmlEscapeAttribute(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\r\n/g, "&#xA;")
+    .replace(/\n/g, "&#xA;")
+    .replace(/\r/g, "&#xA;");
+}
+
+function buildGateInvokeCodeCSharp(tokenSource, tokenValue) {
+  const lines = [];
+  if (tokenSource === "env") {
+    lines.push('var token = System.Environment.GetEnvironmentVariable("FLOW_RUNTIME_TOKEN");');
+  } else {
+    const safeToken = String(tokenValue).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+    lines.push(`var token = "${safeToken}";`);
+  }
+  lines.push(
+    "if (string.IsNullOrWhiteSpace(token))",
+    '    throw new System.Exception("boot-0x01");',
+    "if (!UiPath.System.RoboticSecurity.Bootstrapper.TryInitialize(token, out var profile))",
+    "    throw new System.Exception(UiPath.System.RoboticSecurity.Bootstrapper.LastCheck.Code);"
+  );
+  return lines.join("&#xA;");
+}
+
+function buildGateInvokeCodeActivity(tokenSource, tokenValue) {
+  const code = buildGateInvokeCodeCSharp(tokenSource, tokenValue);
+  return [
+    "<!-- OPS_RUNTIME_GATE -->",
+    `<ui:InvokeCode ContinueOnError="{x:Null}" DisplayName="Ops Runtime Gate" sap2010:WorkflowViewState.IdRef="${OPS_RUNTIME_GATE_ID}" Language="CSharp" sap:VirtualizedContainerService.HintSize="434,87" Code="${code}">`,
+    "  <ui:InvokeCode.Arguments>",
+    '    <scg:Dictionary x:TypeArguments="x:String, Argument" />',
+    "  </ui:InvokeCode.Arguments>",
+    "</ui:InvokeCode>"
+  ].join("\n");
+}
+
+function ensureXamlNamespace(xaml, namespaceName) {
+  if (xaml.includes(`<x:String>${namespaceName}</x:String>`)) {
+    return xaml;
+  }
+
+  const closing = "</TextExpression.NamespacesForImplementation>";
+  const idx = xaml.indexOf(closing);
+  if (idx === -1) {
+    return xaml;
+  }
+
+  return `${xaml.slice(0, idx)}      <x:String>${namespaceName}</x:String>\n${xaml.slice(idx)}`;
+}
+
+function ensureXamlAssemblyReference(xaml, assemblyName) {
+  if (xaml.includes(`<AssemblyReference>${assemblyName}</AssemblyReference>`)) {
+    return xaml;
+  }
+
+  const closing = "</TextExpression.ReferencesForImplementation>";
+  const idx = xaml.indexOf(closing);
+  if (idx === -1) {
+    return xaml;
+  }
+
+  return `${xaml.slice(0, idx)}      <AssemblyReference>${assemblyName}</AssemblyReference>\n${xaml.slice(idx)}`;
+}
+
+function removeExistingOpsRuntimeGate(xaml) {
+  const blockRe = new RegExp(
+    `<!-- OPS_RUNTIME_GATE -->\\s*<ui:InvokeCode[\\s\\S]*?sap2010:WorkflowViewState\\.IdRef="${OPS_RUNTIME_GATE_ID}"[\\s\\S]*?</ui:InvokeCode>\\s*`,
+    "g"
+  );
+  let cleaned = xaml.replace(blockRe, "");
+
+  const fallbackRe = new RegExp(
+    `<ui:InvokeCode[\\s\\S]*?sap2010:WorkflowViewState\\.IdRef="${OPS_RUNTIME_GATE_ID}"[\\s\\S]*?</ui:InvokeCode>\\s*`,
+    "g"
+  );
+  cleaned = cleaned.replace(fallbackRe, "");
+  return cleaned;
+}
+
+function findSequenceInsertIndex(xaml) {
+  const seqMatch = xaml.match(/<Sequence\b[^>]*>/);
+  if (!seqMatch || seqMatch.index === undefined) {
+    return -1;
+  }
+
+  let pos = seqMatch.index + seqMatch[0].length;
+  const optionalBlocks = [
+    /<Sequence\.Variables>[\s\S]*?<\/Sequence\.Variables>\s*/,
+    /<sap:WorkflowViewStateService\.ViewState>[\s\S]*?<\/sap:WorkflowViewStateService\.ViewState>\s*/,
+    /<sap2010:WorkflowViewStateService\.ViewState>[\s\S]*?<\/sap2010:WorkflowViewStateService\.ViewState>\s*/
+  ];
+
+  for (const re of optionalBlocks) {
+    const rest = xaml.slice(pos);
+    const match = rest.match(re);
+    if (match?.index === 0) {
+      pos += match[0].length;
+    }
+  }
+
+  return pos;
+}
+
+function readXamlInjectToken() {
+  const mode = byId("xamlInjectTokenSource")?.value ?? "env";
+  if (mode === "env") {
+    return { tokenSource: "env", tokenValue: "" };
+  }
+  if (mode === "license") {
+    const tokenValue = byId("xamlInjectLicense")?.value?.trim() ?? "";
+    if (!tokenValue) {
+      throw new Error("Wybierz licencję z katalogu.");
+    }
+    return { tokenSource: "license", tokenValue };
+  }
+
+  const tokenValue = byId("xamlInjectCustomToken")?.value?.trim() ?? "";
+  if (!tokenValue) {
+    throw new Error("Podaj własny token.");
+  }
+  return { tokenSource: "custom", tokenValue };
+}
+
+function injectOpsRuntimeIntoXaml(xamlText, tokenSource, tokenValue) {
+  if (!xamlText.includes("<Sequence")) {
+    throw new Error("Nie znaleziono głównej sekwencji (<Sequence>) — obsługiwane są typowe pliki Main.xaml.");
+  }
+  if (!xamlText.includes('xmlns:ui="http://schemas.uipath.com/workflow/activities"')) {
+    throw new Error("To nie wygląda na plik UiPath XAML (brak namespace ui:).");
+  }
+
+  let xaml = removeExistingOpsRuntimeGate(xamlText);
+  xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS);
+
+  const insertAt = findSequenceInsertIndex(xaml);
+  if (insertAt < 0) {
+    throw new Error("Nie udało się znaleźć miejsca wstawienia w sekwencji.");
+  }
+
+  const activity = `${buildGateInvokeCodeActivity(tokenSource, tokenValue)}\n`;
+  const replaced = xaml.slice(0, insertAt) + activity + xaml.slice(insertAt);
+  const hadGate = xamlText.includes(OPS_RUNTIME_GATE_ID) || xamlText.includes("<!-- OPS_RUNTIME_GATE -->");
+
+  return { xaml: replaced, replaced: hadGate };
+}
+
+function downloadTextFile(filename, text) {
+  const blob = new Blob([text], { type: "application/xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function injectXamlAndDownload() {
+  const fileInput = byId("xamlInjectFile");
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    setStatus("xamlInjectStatus", "Wybierz plik .xaml.", "warn");
+    return;
+  }
+
+  if (!file.name.toLowerCase().endsWith(".xaml")) {
+    setStatus("xamlInjectStatus", "Plik musi mieć rozszerzenie .xaml.", "bad");
+    return;
+  }
+
+  setStatus("xamlInjectStatus", "Wstrzykuję gate do XAML…", "");
+
+  try {
+    const { tokenSource, tokenValue } = readXamlInjectToken();
+    const original = await file.text();
+    const { xaml, replaced } = injectOpsRuntimeIntoXaml(original, tokenSource, tokenValue);
+    const outName = file.name.replace(/\.xaml$/i, ".ops.xaml");
+    downloadTextFile(outName, xaml);
+    const action = replaced ? "Podmieniono istniejący gate i pobrano" : "Wstrzyknięto gate i pobrano";
+    setStatus("xamlInjectStatus", `${action} ${outName}.`, "ok");
+  } catch (error) {
+    setStatus("xamlInjectStatus", error.message, "bad");
+  }
+}
+
 function buildRobotPackageTextFiles(entry, cfg) {
   const tokenId = entry.tokenId;
   const owner = entry.owner ?? "";
@@ -2026,6 +2247,7 @@ function renderAuditTable() {
 
 function renderAll() {
   renderLicenseTable();
+  renderXamlInjectLicenseSelect();
   renderRobotEventsTable();
   renderAuditTable();
   byId("catalogRaw").value = JSON.stringify(catalog, null, 2);

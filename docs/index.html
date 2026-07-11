@@ -228,6 +228,37 @@
 
       <section class="card">
         <div class="section-head">
+          <div class="section-icon" aria-hidden="true">📄</div>
+          <h2>Wstrzyknij gate do XAML</h2>
+        </div>
+        <p class="hint">Wrzuć plik <code>.xaml</code> z UiPath Studio — panel doda na początku głównej sekwencji aktywność <strong>Invoke Code</strong> z bootstrapperem licencji i zwróci zmodyfikowany plik.</p>
+        <div class="form-grid">
+          <label>Plik XAML
+            <input id="xamlInjectFile" type="file" accept=".xaml,application/xml,text/xml">
+          </label>
+          <label>Źródło tokenu
+            <select id="xamlInjectTokenSource">
+              <option value="env">FLOW_RUNTIME_TOKEN (zmienna środowiskowa)</option>
+              <option value="license">Licencja z katalogu</option>
+              <option value="custom">Własny token</option>
+            </select>
+          </label>
+          <label id="xamlInjectLicenseWrap" class="hidden">Licencja
+            <select id="xamlInjectLicense"></select>
+          </label>
+          <label id="xamlInjectCustomWrap" class="hidden">Token
+            <input id="xamlInjectCustomToken" type="text" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <p class="muted hint">Wymaga zainstalowanego pakietu <code>UiPath.System.RoboticSecurity</code> w projekcie robota. Przy ponownym wstrzyknięciu istniejący gate zostanie podmieniony.</p>
+        <div class="actions">
+          <button id="btnInjectXaml" type="button" class="primary">Wstrzyknij i pobierz XAML</button>
+        </div>
+        <p id="xamlInjectStatus" class="status"></p>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
           <div class="section-icon" aria-hidden="true">✨</div>
           <h2>Nowa licencja</h2>
         </div>
@@ -351,6 +382,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="./app.js?v=21"></script>
+  <script src="./app.js?v=22"></script>
 </body>
 </html>
