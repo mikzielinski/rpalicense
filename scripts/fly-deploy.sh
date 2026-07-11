@@ -16,12 +16,23 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   exit 1
 fi
 
-if [[ -z "${OPS_OPERATOR_SECRET:-}" || -z "${OPS_SESSION_SIGNING_KEY:-}" ]]; then
-  echo "Set OPS_OPERATOR_SECRET and OPS_SESSION_SIGNING_KEY before deploy." >&2
-  exit 1
+if [[ -z "${OPS_OPERATOR_SECRET:-}" ]]; then
+  OPS_OPERATOR_SECRET="$(openssl rand -hex 16)"
+  echo "Generated OPS_OPERATOR_SECRET (set the same value in the panel): $OPS_OPERATOR_SECRET"
 fi
 
-flyctl apps list >/dev/null 2>&1 || {
+if [[ -z "${OPS_SESSION_SIGNING_KEY:-}" ]]; then
+  OPS_SESSION_SIGNING_KEY="$(openssl rand -hex 32)"
+  echo "Generated OPS_SESSION_SIGNING_KEY: $OPS_SESSION_SIGNING_KEY"
+fi
+
+export OPS_OPERATOR_SECRET OPS_SESSION_SIGNING_KEY
+
+if [[ -n "${FLY_API_TOKEN:-}" ]]; then
+  export FLY_ACCESS_TOKEN="$FLY_API_TOKEN"
+fi
+
+flyctl apps list --app rpalicense >/dev/null 2>&1 || flyctl apps list >/dev/null 2>&1 || {
   echo "Run: flyctl auth login" >&2
   exit 1
 }
@@ -30,7 +41,7 @@ if ! flyctl apps list 2>/dev/null | grep -q '^rpalicense'; then
   flyctl launch --config fly.toml --copy-config --no-deploy --name rpalicense --region ams --yes
 fi
 
-flyctl secrets set \
+flyctl secrets set --app rpalicense \
   DATABASE_URL="$DATABASE_URL" \
   OPS_OPERATOR_SECRET="$OPS_OPERATOR_SECRET" \
   OPS_SESSION_SIGNING_KEY="$OPS_SESSION_SIGNING_KEY" \
@@ -41,6 +52,6 @@ flyctl secrets set \
   OPS_SEED_ENVELOPE_AUDIENCE="${OPS_SEED_ENVELOPE_AUDIENCE:-ops-runtime-seed}" \
   ${OPS_SEED_PUBLIC_SEAL_KEY_PEM:+OPS_SEED_PUBLIC_SEAL_KEY_PEM="$OPS_SEED_PUBLIC_SEAL_KEY_PEM"}
 
-flyctl deploy --config fly.toml
+flyctl deploy --config fly.toml --app rpalicense
 
 echo "API URL: https://rpalicense.fly.dev"

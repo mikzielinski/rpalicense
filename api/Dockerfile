@@ -1,7 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
+
+COPY src/Ops.Runtime.Seed/Ops.Runtime.Seed.csproj src/Ops.Runtime.Seed/
 COPY api/Ops.License.Api/Ops.License.Api.csproj api/Ops.License.Api/
 RUN dotnet restore api/Ops.License.Api/Ops.License.Api.csproj
+
+COPY src/Ops.Runtime.Seed/ src/Ops.Runtime.Seed/
 COPY api/Ops.License.Api/ api/Ops.License.Api/
 RUN dotnet publish api/Ops.License.Api/Ops.License.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
