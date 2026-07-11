@@ -1712,9 +1712,58 @@ function formatEntryPointList(entryFiles) {
   return entryFiles.map((f) => f.relPath).join(", ");
 }
 
-function injectTamperResistantGate(xamlText, tokenSource, tokenValue, seed) {
+function injectTamperResistantGate(xamlText, tokenValue, seed, concealMode) {
   const varName = generateParanoidVarName(seed);
-  return injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue, varName);
+  return injectEmbeddedGateIntoXaml(xamlText, tokenValue, varName, concealMode);
+}
+
+function tokenToBase64(tokenValue) {
+  const bytes = new TextEncoder().encode(tokenValue);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function buildEmbeddedGateExpression(tokenValue, concealMode) {
+  if (concealMode === "paranoid") {
+    const b64 = tokenToBase64(tokenValue);
+    return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize(System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String("${b64}")))]`;
+  }
+  const safeToken = String(tokenValue).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize("${safeToken}")]`;
+}
+
+function buildEmbeddedGateVariable(tokenValue, varName, concealMode) {
+  const expression = buildEmbeddedGateExpression(tokenValue, concealMode);
+  const escaped = expression
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;");
+  return `<Variable x:TypeArguments="x:Object" Default="${escaped}" Name="${varName}" />`;
+}
+
+function injectEmbeddedGateIntoXaml(xamlText, tokenValue, varName, concealMode) {
+  if (!xamlText.includes("<Sequence")) {
+    throw new Error("Nie znaleziono głównej sekwencji (<Sequence>).");
+  }
+
+  let xaml = removeExistingOpsRuntimeGate(xamlText);
+  xaml = removeExistingHiddenGates(xaml);
+  xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, true);
+  if (concealMode === "paranoid") {
+    xaml = ensureXamlNamespace(xaml, "System.Text");
+  }
+
+  const variableXml = buildEmbeddedGateVariable(tokenValue, varName, concealMode);
+  xaml = insertGateVariableIntoSequence(xaml, variableXml, true);
+
+  const hadGate = xamlText.includes(OPS_RUNTIME_STEALTH_VAR)
+    || new RegExp(HIDDEN_GATE_VAR_PATTERN).test(xamlText)
+    || xamlText.includes("<!-- OPS_RUNTIME_STEALTH -->")
+    || xamlText.includes(OPS_RUNTIME_GATE_ID);
+  return { xaml, replaced: hadGate };
 }
 
 function getBundleLayout(mode, projectDir, version) {
@@ -1764,7 +1813,7 @@ function updateUiPathConcealUi() {
       xamlSelect.title = "Entry pointy (main / entryPoints) są patchowane automatycznie.";
     }
     if (mode === "paranoid") {
-      hint.textContent = "Paranoid: ukryty hook kompilacyjny w entry pointach — usunięcie paczki rozwala workflow. Typowy dev nie zagląda w Variables; ekspert znajdzie po dependencies / DLL / env.";
+      hint.textContent = "Paranoid: token z listy licencji wkodowany w entry pointy (Base64). Brak FLOW_RUNTIME_TOKEN w paczce — tylko OPS_SEED_* w env.";
     } else {
       hint.textContent = "Ghost: hook kompilacyjny w entry pointach + .ops-runtime. Usunięcie UiPath.System.RoboticSecurity psuje kompilację tych workflow.";
     }
@@ -1784,9 +1833,37 @@ function updateUiPathConcealUi() {
 }
 
 function updateXamlInjectTokenFields() {
-  const mode = byId("xamlInjectTokenSource")?.value ?? "env";
+  const mode = byId("xamlInjectTokenSource")?.value ?? "license";
   byId("xamlInjectLicenseWrap")?.classList.toggle("hidden", mode !== "license");
   byId("xamlInjectCustomWrap")?.classList.toggle("hidden", mode !== "custom");
+}
+
+function renderProjectPatchLicenseSelect() {
+  const select = byId("projectPatchLicense");
+  if (!select) return;
+
+  const current = select.value;
+  select.innerHTML = '<option value="">— wybierz z listy —</option>';
+  for (const entry of catalog.entries) {
+    const option = document.createElement("option");
+    option.value = entry.tokenId;
+    option.textContent = `${entry.tokenId} (${entry.owner ?? "-"})`;
+    select.appendChild(option);
+  }
+
+  if (current && [...select.options].some((o) => o.value === current)) {
+    select.value = current;
+  } else if (catalog.entries.length === 1) {
+    select.value = catalog.entries[0].tokenId;
+  }
+}
+
+function readProjectPatchToken() {
+  const tokenValue = byId("projectPatchLicense")?.value?.trim() ?? "";
+  if (!tokenValue) {
+    throw new Error("Wybierz licencję z listy — token zostanie wbudowany w workflow.");
+  }
+  return { tokenValue };
 }
 
 function renderXamlInjectLicenseSelect() {
@@ -1918,9 +1995,9 @@ function injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue, varName) {
   return { xaml, replaced: hadGate };
 }
 
-function injectGateIntoXamlByMode(xamlText, tokenSource, tokenValue, mode, projectSeed) {
+function injectGateIntoXamlByMode(xamlText, tokenValue, mode, projectSeed, concealMode) {
   if (mode === "refs" || mode === "deep") {
-    return injectTamperResistantGate(xamlText, tokenSource, tokenValue, projectSeed);
+    return injectTamperResistantGate(xamlText, tokenValue, projectSeed, concealMode);
   }
   return { xaml: xamlText, replaced: false, skipped: true };
 }
@@ -2078,7 +2155,7 @@ function patchProjectJsonContent(projectJson, version) {
   return next;
 }
 
-function buildProjectRobotEnv(cfg, tokenSource, tokenValue, paranoid) {
+function buildProjectRobotEnv(cfg, paranoid) {
   const lines = paranoid
     ? [
       "# Studio launch environment profile",
@@ -2092,14 +2169,9 @@ function buildProjectRobotEnv(cfg, tokenSource, tokenValue, paranoid) {
     `OPS_SEED_PEPPER=${cfg.pepper}`,
     `OPS_SEED_TELEMETRY=${cfg.telemetry ? "1" : "0"}`,
     `OPS_SEED_KILL_ON_DENY=${cfg.killOnDeny ? "1" : "0"}`,
-    `OPS_SEED_GRACE_DAYS=${cfg.graceDays}`
+    `OPS_SEED_GRACE_DAYS=${cfg.graceDays}`,
+    ""
   );
-  if (tokenSource === "env") {
-    lines.push("FLOW_RUNTIME_TOKEN=<ustaw-token-licencji>");
-  } else {
-    lines.push(`FLOW_RUNTIME_TOKEN=${tokenValue}`);
-  }
-  lines.push("");
   return lines.join("\r\n");
 }
 
@@ -2113,11 +2185,12 @@ function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
     envProfile: ".settings/Debug/launchEnvironment.profile",
     compileHooks: entryList,
     tamper: "Removing the package breaks entry workflow compilation",
+    tokenEmbedded: true,
     expertHints: [
       "dependencies in project.json",
-      "hidden Variable Default in entry XAML",
+      "hidden Variable Default in entry XAML (token embedded, not in env)",
       "ModuleInitializer in UiPath.System.RoboticSecurity.dll",
-      "FLOW_RUNTIME_TOKEN and OPS_SEED_* environment variables"
+      "OPS_SEED_* environment variables only (no FLOW_RUNTIME_TOKEN)"
     ]
   }, null, 2)}\n`;
 }
@@ -2128,15 +2201,15 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
   }
 
   const modeLines = {
-    ghost: [
-      `- Entry pointy (${xamlRelPath}): ukryty hook kompilacyjny w Variables`,
-      "- Usunięcie UiPath.System.RoboticSecurity psuje kompilację tych workflow",
-      "- Wymagane: FLOW_RUNTIME_TOKEN + OPS_SEED_* w środowisku"
-    ],
     paranoid: [
-      `- Entry pointy (${xamlRelPath}): ukryty hook kompilacyjny (bez znaczników OPS)`,
-      "- Usunięcie paczki rozwala workflow — brak DLL = błąd wyrażenia w Variables",
-      "- Paczka w .local/.nupkg; env w .settings/Debug/launchEnvironment.profile"
+      `- Entry pointy (${xamlRelPath}): token wkodowany w Variables (Base64 w Paranoid)`,
+      "- Brak FLOW_RUNTIME_TOKEN w plikach projektu — tylko OPS_SEED_* w env",
+      "- Usunięcie paczki rozwala kompilację workflow"
+    ],
+    ghost: [
+      `- Entry pointy (${xamlRelPath}): token wkodowany w Variables`,
+      "- Brak FLOW_RUNTIME_TOKEN w paczce — tylko OPS_SEED_* w środowisku",
+      "- Usunięcie paczki psuje kompilację entry workflow"
     ],
     refs: [
       `- ${xamlRelPath}: referencje XML + zmienna kompilacyjna`,
@@ -2180,8 +2253,7 @@ function buildProjectNugetConfig(feedPath, paranoid) {
   ].join("\n");
 }
 
-function buildProjectSetEnvCmd(cfg, tokenSource, tokenValue) {
-  const token = tokenSource === "env" ? "%FLOW_RUNTIME_TOKEN%" : tokenValue;
+function buildProjectSetEnvCmd(cfg) {
   return [
     "@echo off",
     "chcp 65001 >nul",
@@ -2190,8 +2262,7 @@ function buildProjectSetEnvCmd(cfg, tokenSource, tokenValue) {
     "setx OPS_SEED_TELEMETRY \"" + (cfg.telemetry ? "1" : "0") + "\"",
     "setx OPS_SEED_KILL_ON_DENY \"" + (cfg.killOnDeny ? "1" : "0") + "\"",
     "setx OPS_SEED_GRACE_DAYS \"" + cfg.graceDays + "\"",
-    tokenSource === "env" ? "REM setx FLOW_RUNTIME_TOKEN \"RT-...\"" : `setx FLOW_RUNTIME_TOKEN "${token}"`,
-    "echo Gotowe. Uruchom ponownie Studio / robota.",
+    "echo Gotowe. Token jest wbudowany w workflow — nie ustawiaj FLOW_RUNTIME_TOKEN.",
     "pause"
   ].join("\r\n");
 }
@@ -2222,7 +2293,7 @@ async function patchUiPathProjectAndDownload() {
   setStatus("xamlInjectStatus", "Patchuję projekt…", "");
 
   try {
-    const { tokenSource, tokenValue } = readXamlInjectToken();
+    const { tokenValue } = readProjectPatchToken();
     const { zip, projectJsonPath, projectDir, projectJson, fileName, xamlFiles } = uipathProjectState;
     const patchedJson = patchProjectJsonContent(projectJson, cfg.version);
     const xamlEntry = xamlFiles.find((f) => f.fullPath === selectedXaml);
@@ -2247,9 +2318,9 @@ async function patchUiPathProjectAndDownload() {
         if (entryPathSet.has(fullPath)) {
           const result = injectTamperResistantGate(
             content,
-            tokenSource,
             tokenValue,
-            `${projectSeed}:${relPath}`
+            `${projectSeed}:${relPath}`,
+            mode
           );
           content = result.xaml;
           if (result.replaced) {
@@ -2265,7 +2336,7 @@ async function patchUiPathProjectAndDownload() {
       }
     } else {
       const originalXaml = await zip.file(selectedXaml).async("string");
-      const result = injectGateIntoXamlByMode(originalXaml, tokenSource, tokenValue, mode, projectSeed);
+      const result = injectGateIntoXamlByMode(originalXaml, tokenValue, mode, projectSeed, mode);
       modifiedXaml.set(normalizeZipPath(selectedXaml), result.xaml);
       replaced = result.replaced;
     }
@@ -2299,11 +2370,11 @@ async function patchUiPathProjectAndDownload() {
     const [nupkgBuf] = await Promise.all([fetchBinary(cfg.nugetUrl)]);
     const paranoid = mode === "paranoid";
     outZip.file(bundle.nupkgPath, nupkgBuf);
-    outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, tokenSource, tokenValue, paranoid));
+    outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
     outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath, paranoid));
     outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
     if (bundle.cmdPath) {
-      outZip.file(bundle.cmdPath, buildProjectSetEnvCmd(cfg, tokenSource, tokenValue));
+      outZip.file(bundle.cmdPath, buildProjectSetEnvCmd(cfg));
     }
 
     const blob = await outZip.generateAsync({ type: "blob", compression: "DEFLATE" });
@@ -2317,7 +2388,7 @@ async function patchUiPathProjectAndDownload() {
 
     const modeLabel = { paranoid: "Paranoid", ghost: "Ghost", refs: "Refs", deep: "Deep" }[mode] ?? mode;
     const action = replaced ? "Podmieniono i pobrano" : "Spatchowano i pobrano";
-    const detail = isGhostLikeMode(mode) ? `entry: ${xamlRelPath}` : xamlRelPath;
+    const detail = `${isGhostLikeMode(mode) ? `entry: ${xamlRelPath}` : xamlRelPath} · token ${tokenValue}`;
     setStatus("xamlInjectStatus", `${action} ${link.download} [${modeLabel}: ${detail}].`, "ok");
   } catch (error) {
     setStatus("xamlInjectStatus", error.message, "bad");
@@ -2438,7 +2509,7 @@ function findSequenceInsertIndex(xaml) {
 }
 
 function readXamlInjectToken() {
-  const mode = byId("xamlInjectTokenSource")?.value ?? "env";
+  const mode = byId("xamlInjectTokenSource")?.value ?? "license";
   if (mode === "env") {
     return { tokenSource: "env", tokenValue: "" };
   }
@@ -2902,6 +2973,7 @@ function renderAuditTable() {
 
 function renderAll() {
   renderLicenseTable();
+  renderProjectPatchLicenseSelect();
   renderXamlInjectLicenseSelect();
   renderRobotEventsTable();
   renderAuditTable();

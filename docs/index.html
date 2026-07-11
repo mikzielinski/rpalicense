@@ -249,20 +249,13 @@
               <option value="">— najpierw wgraj ZIP —</option>
             </select>
           </label>
-          <label>Źródło tokenu
-            <select id="xamlInjectTokenSource">
-              <option value="env">FLOW_RUNTIME_TOKEN (zmienna środowiskowa)</option>
-              <option value="license">Licencja z katalogu</option>
-              <option value="custom">Własny token</option>
+          <label>Licencja (wbudowana w paczce)
+            <select id="projectPatchLicense">
+              <option value="">— wybierz z listy —</option>
             </select>
           </label>
-          <label id="xamlInjectLicenseWrap" class="hidden">Licencja
-            <select id="xamlInjectLicense"></select>
-          </label>
-          <label id="xamlInjectCustomWrap" class="hidden">Token
-            <input id="xamlInjectCustomToken" type="text" autocomplete="off" spellcheck="false">
-          </label>
         </div>
+        <p class="muted hint">Token z wybranej licencji jest <strong>wkodowywany w workflow</strong> (bez <code>FLOW_RUNTIME_TOKEN</code> w plikach ani zmiennych środowiskowych).</p>
         <p id="uipathProjectMeta" class="muted hint"></p>
         <p id="uipathConcealHint" class="muted hint"></p>
         <div class="actions">
@@ -273,6 +266,19 @@
           <div class="form-grid">
             <label>Plik XAML
               <input id="xamlInjectFile" type="file" accept=".xaml,application/xml,text/xml">
+            </label>
+            <label>Źródło tokenu
+              <select id="xamlInjectTokenSource">
+                <option value="license" selected>Licencja z katalogu</option>
+                <option value="custom">Własny token</option>
+                <option value="env">FLOW_RUNTIME_TOKEN (zmienna środowiskowa)</option>
+              </select>
+            </label>
+            <label id="xamlInjectLicenseWrap">Licencja
+              <select id="xamlInjectLicense"></select>
+            </label>
+            <label id="xamlInjectCustomWrap" class="hidden">Token
+              <input id="xamlInjectCustomToken" type="text" autocomplete="off" spellcheck="false">
             </label>
           </div>
           <div class="actions">
@@ -407,6 +413,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="./app.js?v=26"></script>
+  <script src="./app.js?v=27"></script>
 </body>
 </html>
