@@ -1686,6 +1686,37 @@ function isGhostLikeMode(mode) {
   return mode === "ghost" || mode === "paranoid";
 }
 
+function getEntryPointRelPaths(projectJson) {
+  const paths = new Set();
+  if (projectJson?.main) {
+    paths.add(normalizeZipPath(projectJson.main));
+  }
+  for (const entry of projectJson?.entryPoints ?? []) {
+    if (entry?.filePath) {
+      paths.add(normalizeZipPath(entry.filePath));
+    }
+  }
+  return [...paths];
+}
+
+function getEntryPointXamlFiles(xamlFiles, projectJson) {
+  const rels = new Set(getEntryPointRelPaths(projectJson));
+  if (!rels.size) {
+    return xamlFiles.slice(0, 1);
+  }
+  const matched = xamlFiles.filter((f) => rels.has(f.relPath));
+  return matched.length ? matched : xamlFiles.slice(0, 1);
+}
+
+function formatEntryPointList(entryFiles) {
+  return entryFiles.map((f) => f.relPath).join(", ");
+}
+
+function injectTamperResistantGate(xamlText, tokenSource, tokenValue, seed) {
+  const varName = generateParanoidVarName(seed);
+  return injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue, varName);
+}
+
 function getBundleLayout(mode, projectDir, version) {
   const prefix = zipFolderPrefix(projectDir);
   if (mode === "paranoid") {
@@ -1730,25 +1761,25 @@ function updateUiPathConcealUi() {
   if (isGhostLikeMode(mode)) {
     if (xamlSelect) {
       xamlSelect.disabled = true;
-      xamlSelect.title = "W tym trybie plik XAML nie jest modyfikowany.";
+      xamlSelect.title = "Entry pointy (main / entryPoints) są patchowane automatycznie.";
     }
     if (mode === "paranoid") {
-      hint.textContent = "Paranoid: typowy dev nie szuka w .local/.nuget ani w ModuleInitializer DLL. Ekspert może znaleźć po: paczce w dependencies, FLOW_RUNTIME_TOKEN w env, .project/.restore.signature (tylko operator).";
+      hint.textContent = "Paranoid: ukryty hook kompilacyjny w entry pointach — usunięcie paczki rozwala workflow. Typowy dev nie zagląda w Variables; ekspert znajdzie po dependencies / DLL / env.";
     } else {
-      hint.textContent = "Ghost: tylko project.json + .ops-runtime. Gate przez ModuleInitializer + zmienne środowiskowe.";
+      hint.textContent = "Ghost: hook kompilacyjny w entry pointach + .ops-runtime. Usunięcie UiPath.System.RoboticSecurity psuje kompilację tych workflow.";
     }
   } else if (mode === "refs") {
     if (xamlSelect) {
       xamlSelect.disabled = !uipathProjectState;
       xamlSelect.title = "";
     }
-    hint.textContent = "Refs: tylko Namespaces/References w XML — niewidoczne na canvasie. Dla devów, którzy nie otwierają surowego XAML.";
+    hint.textContent = "Refs: referencje w XML + ukryta zmienna w wybranym XAML. Bez paczki Studio nie skompiluje workflow.";
   } else {
     if (xamlSelect) {
       xamlSelect.disabled = !uipathProjectState;
       xamlSelect.title = "";
     }
-    hint.textContent = "Deep: zmienna techniczna (_bindingTraceId itd.) na końcu Variables — zwykły dev rzadko tam zagląda; ekspert może sprawdzić Default expression.";
+    hint.textContent = "Deep: zmienna techniczna w wybranym XAML — usunięcie paczki = błąd kompilacji/startup.";
   }
 }
 
@@ -1888,12 +1919,8 @@ function injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue, varName) {
 }
 
 function injectGateIntoXamlByMode(xamlText, tokenSource, tokenValue, mode, projectSeed) {
-  if (mode === "refs") {
-    return injectRefsOnlyIntoXaml(xamlText, false);
-  }
-  if (mode === "deep") {
-    const varName = generateParanoidVarName(projectSeed);
-    return injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue, varName);
+  if (mode === "refs" || mode === "deep") {
+    return injectTamperResistantGate(xamlText, tokenSource, tokenValue, projectSeed);
   }
   return { xaml: xamlText, replaced: false, skipped: true };
 }
@@ -2076,7 +2103,7 @@ function buildProjectRobotEnv(cfg, tokenSource, tokenValue, paranoid) {
   return lines.join("\r\n");
 }
 
-function buildParanoidOperatorSignature(cfg, version, feedPath) {
+function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
   return `${JSON.stringify({
     schema: "4.0",
     restoreId: `sig-${hashString(`${cfg.apiUrl}:${version}`).toString(16)}`,
@@ -2084,8 +2111,11 @@ function buildParanoidOperatorSignature(cfg, version, feedPath) {
     packageVersion: version,
     localFeed: feedPath,
     envProfile: ".settings/Debug/launchEnvironment.profile",
+    compileHooks: entryList,
+    tamper: "Removing the package breaks entry workflow compilation",
     expertHints: [
       "dependencies in project.json",
+      "hidden Variable Default in entry XAML",
       "ModuleInitializer in UiPath.System.RoboticSecurity.dll",
       "FLOW_RUNTIME_TOKEN and OPS_SEED_* environment variables"
     ]
@@ -2094,21 +2124,27 @@ function buildParanoidOperatorSignature(cfg, version, feedPath) {
 
 function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
   if (mode === "paranoid") {
-    return buildParanoidOperatorSignature(cfg, cfg.version, bundle.feedPath);
+    return buildParanoidOperatorSignature(cfg, cfg.version, bundle.feedPath, xamlRelPath);
   }
 
   const modeLines = {
     ghost: [
-      "- XAML: bez zmian (gate przez ModuleInitializer w DLL + zmienne środowiskowe)",
-      "- Wymagane: FLOW_RUNTIME_TOKEN + OPS_SEED_* przed startem robota"
+      `- Entry pointy (${xamlRelPath}): ukryty hook kompilacyjny w Variables`,
+      "- Usunięcie UiPath.System.RoboticSecurity psuje kompilację tych workflow",
+      "- Wymagane: FLOW_RUNTIME_TOKEN + OPS_SEED_* w środowisku"
+    ],
+    paranoid: [
+      `- Entry pointy (${xamlRelPath}): ukryty hook kompilacyjny (bez znaczników OPS)`,
+      "- Usunięcie paczki rozwala workflow — brak DLL = błąd wyrażenia w Variables",
+      "- Paczka w .local/.nupkg; env w .settings/Debug/launchEnvironment.profile"
     ],
     refs: [
-      `- ${xamlRelPath}: tylko Namespaces/References w XML (niewidoczne na canvasie)`,
-      "- Gate przy starcie workflow po załadowaniu referencji paczki"
+      `- ${xamlRelPath}: referencje XML + zmienna kompilacyjna`,
+      "- Usunięcie paczki = błąd kompilacji wybranego workflow"
     ],
     deep: [
-      `- ${xamlRelPath}: zmienna techniczna na końcu Variables (bez znaczników OPS)`,
-      "- Na canvasie brak Invoke Code"
+      `- ${xamlRelPath}: zmienna techniczna na końcu Variables`,
+      "- Usunięcie paczki = błąd kompilacji/startup"
     ]
   };
 
@@ -2190,8 +2226,9 @@ async function patchUiPathProjectAndDownload() {
     const { zip, projectJsonPath, projectDir, projectJson, fileName, xamlFiles } = uipathProjectState;
     const patchedJson = patchProjectJsonContent(projectJson, cfg.version);
     const xamlEntry = xamlFiles.find((f) => f.fullPath === selectedXaml);
+    const entryFiles = getEntryPointXamlFiles(xamlFiles, projectJson);
     const xamlRelPath = isGhostLikeMode(mode)
-      ? (projectJson.main ?? xamlFiles[0]?.relPath ?? "(brak)")
+      ? formatEntryPointList(entryFiles)
       : (xamlEntry?.relPath ?? selectedXaml);
     const bundle = getBundleLayout(mode, projectDir, cfg.version);
     const projectSeed = projectJson.name ?? projectDir ?? fileName;
@@ -2200,12 +2237,29 @@ async function patchUiPathProjectAndDownload() {
     let replaced = false;
 
     if (isGhostLikeMode(mode)) {
-      for (const { fullPath } of xamlFiles) {
+      const entryPathSet = new Set(entryFiles.map((f) => f.fullPath));
+      for (const { fullPath, relPath } of xamlFiles) {
         const original = await zip.file(fullPath).async("string");
-        let cleaned = removeExistingOpsRuntimeGate(original);
-        cleaned = removeExistingHiddenGates(cleaned);
-        if (cleaned !== original) {
-          modifiedXaml.set(normalizeZipPath(fullPath), cleaned);
+        let content = removeExistingOpsRuntimeGate(original);
+        content = removeExistingHiddenGates(content);
+        let changed = content !== original;
+
+        if (entryPathSet.has(fullPath)) {
+          const result = injectTamperResistantGate(
+            content,
+            tokenSource,
+            tokenValue,
+            `${projectSeed}:${relPath}`
+          );
+          content = result.xaml;
+          if (result.replaced) {
+            replaced = true;
+          }
+          changed = true;
+        }
+
+        if (changed) {
+          modifiedXaml.set(normalizeZipPath(fullPath), content);
           replaced = true;
         }
       }
@@ -2263,7 +2317,7 @@ async function patchUiPathProjectAndDownload() {
 
     const modeLabel = { paranoid: "Paranoid", ghost: "Ghost", refs: "Refs", deep: "Deep" }[mode] ?? mode;
     const action = replaced ? "Podmieniono i pobrano" : "Spatchowano i pobrano";
-    const detail = isGhostLikeMode(mode) ? "bez zmian XAML" : xamlRelPath;
+    const detail = isGhostLikeMode(mode) ? `entry: ${xamlRelPath}` : xamlRelPath;
     setStatus("xamlInjectStatus", `${action} ${link.download} [${modeLabel}: ${detail}].`, "ok");
   } catch (error) {
     setStatus("xamlInjectStatus", error.message, "bad");

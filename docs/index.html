@@ -231,7 +231,7 @@
           <div class="section-icon" aria-hidden="true">📦</div>
           <h2>Patch projektu UiPath</h2>
         </div>
-        <p class="hint">Spakuj folder projektu Studio do <code>.zip</code> — panel doda paczkę, lokalny feed NuGet i gate licencji. Wybierz poziom ukrycia: od zera zmian w XAML po głęboką zmianę bez widocznych klocków.</p>
+        <p class="hint">Spakuj folder projektu Studio do <code>.zip</code> — panel doda paczkę i ukryty hook. <strong>Usunięcie paczki rozwala kompilację</strong> entry workflow.</p>
         <div class="form-grid">
           <label>Projekt (ZIP)
             <input id="uipathProjectZip" type="file" accept=".zip,application/zip">
@@ -407,6 +407,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="./app.js?v=25"></script>
+  <script src="./app.js?v=26"></script>
 </body>
 </html>
