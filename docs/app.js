@@ -1654,12 +1654,71 @@ const OPS_RUNTIME_GATE_ID = "InvokeCode_OpsRuntimeGate";
 const OPS_RUNTIME_GATE_NS = "UiPath.System.RoboticSecurity";
 const OPS_RUNTIME_STEALTH_VAR = "__opsRuntimeGate";
 const OPS_RUNTIME_DEEP_VAR = "_wfMeta";
-const HIDDEN_GATE_VAR_PATTERN = "(?:__opsRuntimeGate|_wfMeta)";
+const PARANOID_VAR_POOL = [
+  "_bindingTraceId",
+  "_serializerScope",
+  "_annotationRoot",
+  "_correlationState",
+  "_compiledBinding",
+  "_traceCorrelationId",
+  "_workflowBinder",
+  "_contextSnapshot"
+];
+const HIDDEN_GATE_VAR_PATTERN = "(?:__opsRuntimeGate|_wfMeta|_bindingTraceId|_serializerScope|_annotationRoot|_correlationState|_compiledBinding|_traceCorrelationId|_workflowBinder|_contextSnapshot)";
 
 let uipathProjectState = null;
 
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function generateParanoidVarName(seed) {
+  const key = String(seed || "default");
+  return PARANOID_VAR_POOL[hashString(key) % PARANOID_VAR_POOL.length];
+}
+
+function isGhostLikeMode(mode) {
+  return mode === "ghost" || mode === "paranoid";
+}
+
+function getBundleLayout(mode, projectDir, version) {
+  const prefix = zipFolderPrefix(projectDir);
+  if (mode === "paranoid") {
+    const feedPath = ".local/.nupkg";
+    return {
+      feedPath,
+      nupkgPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity/${version}/UiPath.System.RoboticSecurity.${version}.nupkg`,
+      nugetConfigPath: `${prefix}.nuget/NuGet.Config`,
+      envPath: `${prefix}.settings/Debug/launchEnvironment.profile`,
+      operatorPath: `${prefix}.project/.restore.signature`,
+      skipPrefixes: [
+        `${prefix}.local/.nupkg/`,
+        `${prefix}.nuget/`,
+        `${prefix}.settings/Debug/launchEnvironment.profile`,
+        `${prefix}.project/.restore.signature`,
+        `${prefix}.ops-runtime/`
+      ]
+    };
+  }
+
+  return {
+    feedPath: ".ops-runtime/nuget",
+    nupkgPath: `${prefix}.ops-runtime/nuget/UiPath.System.RoboticSecurity.${version}.nupkg`,
+    nugetConfigPath: `${prefix}.ops-runtime/nuget.config`,
+    envPath: `${prefix}.ops-runtime/robot.env`,
+    operatorPath: `${prefix}.ops-runtime/INSTRUKCJA.txt`,
+    cmdPath: `${prefix}.ops-runtime/USTAW-ZMIENNE.cmd`,
+    skipPrefixes: [`${prefix}.ops-runtime/`]
+  };
+}
+
 function readUiPathConcealMode() {
-  return byId("uipathConcealMode")?.value ?? "deep";
+  return byId("uipathConcealMode")?.value ?? "paranoid";
 }
 
 function updateUiPathConcealUi() {
@@ -1668,24 +1727,28 @@ function updateUiPathConcealUi() {
   const hint = byId("uipathConcealHint");
   if (!hint) return;
 
-  if (mode === "ghost") {
+  if (isGhostLikeMode(mode)) {
     if (xamlSelect) {
       xamlSelect.disabled = true;
-      xamlSelect.title = "W trybie Ghost plik XAML nie jest modyfikowany.";
+      xamlSelect.title = "W tym trybie plik XAML nie jest modyfikowany.";
     }
-    hint.textContent = "Ghost: tylko project.json + .ops-runtime. Gate odpala ModuleInitializer przy załadowaniu DLL — ustaw FLOW_RUNTIME_TOKEN i OPS_SEED_* w środowisku robota.";
+    if (mode === "paranoid") {
+      hint.textContent = "Paranoid: typowy dev nie szuka w .local/.nuget ani w ModuleInitializer DLL. Ekspert może znaleźć po: paczce w dependencies, FLOW_RUNTIME_TOKEN w env, .project/.restore.signature (tylko operator).";
+    } else {
+      hint.textContent = "Ghost: tylko project.json + .ops-runtime. Gate przez ModuleInitializer + zmienne środowiskowe.";
+    }
   } else if (mode === "refs") {
     if (xamlSelect) {
       xamlSelect.disabled = !uipathProjectState;
       xamlSelect.title = "";
     }
-    hint.textContent = "Refs: w wybranym XAML tylko sekcje Namespaces/References (niewidoczne na canvasie i w Variables). Wymaga poprawnego restore paczki.";
+    hint.textContent = "Refs: tylko Namespaces/References w XML — niewidoczne na canvasie. Dla devów, którzy nie otwierają surowego XAML.";
   } else {
     if (xamlSelect) {
       xamlSelect.disabled = !uipathProjectState;
       xamlSelect.title = "";
     }
-    hint.textContent = "Deep: zmienna _wfMeta na końcu Variables — wygląda jak metadane workflow; brak komentarzy i znaczników OPS w pliku.";
+    hint.textContent = "Deep: zmienna techniczna (_bindingTraceId itd.) na końcu Variables — zwykły dev rzadko tam zagląda; ekspert może sprawdzić Default expression.";
   }
 }
 
@@ -1734,12 +1797,12 @@ function buildStealthGateExpression(tokenSource, tokenValue) {
   return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize("${safeToken}")]`;
 }
 
-function buildDeepGateVariable(tokenSource, tokenValue) {
+function buildDeepGateVariable(tokenSource, tokenValue, varName) {
   const expression = buildStealthGateExpression(tokenSource, tokenValue);
   const escaped = expression
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;");
-  return `<Variable x:TypeArguments="x:Object" Default="${escaped}" Name="${OPS_RUNTIME_DEEP_VAR}" />`;
+  return `<Variable x:TypeArguments="x:Object" Default="${escaped}" Name="${varName}" />`;
 }
 
 function buildStealthGateVariable(tokenSource, tokenValue) {
@@ -1787,7 +1850,7 @@ function insertGateVariableIntoSequence(xaml, variableXml, insertAtEnd) {
   return xaml.slice(0, idx) + block + xaml.slice(idx);
 }
 
-function injectRefsOnlyIntoXaml(xamlText) {
+function injectRefsOnlyIntoXaml(xamlText, buryReference = false) {
   if (!xamlText.includes('xmlns:ui="http://schemas.uipath.com/workflow/activities"')) {
     throw new Error("To nie wygląda na plik UiPath XAML (brak namespace ui:).");
   }
@@ -1795,16 +1858,16 @@ function injectRefsOnlyIntoXaml(xamlText) {
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
   xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
-  xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, buryReference);
 
   const hadGate = xamlText.includes(OPS_RUNTIME_GATE_NS)
     || xamlText.includes(OPS_RUNTIME_GATE_ID)
     || xamlText.includes(OPS_RUNTIME_STEALTH_VAR)
-    || xamlText.includes(OPS_RUNTIME_DEEP_VAR);
+    || new RegExp(HIDDEN_GATE_VAR_PATTERN).test(xamlText);
   return { xaml, replaced: hadGate };
 }
 
-function injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue) {
+function injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue, varName) {
   if (!xamlText.includes("<Sequence")) {
     throw new Error("Nie znaleziono głównej sekwencji (<Sequence>).");
   }
@@ -1812,24 +1875,25 @@ function injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue) {
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
   xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
-  xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, true);
 
-  const variableXml = buildDeepGateVariable(tokenSource, tokenValue);
+  const variableXml = buildDeepGateVariable(tokenSource, tokenValue, varName);
   xaml = insertGateVariableIntoSequence(xaml, variableXml, true);
 
   const hadGate = xamlText.includes(OPS_RUNTIME_STEALTH_VAR)
-    || xamlText.includes(OPS_RUNTIME_DEEP_VAR)
+    || new RegExp(HIDDEN_GATE_VAR_PATTERN).test(xamlText)
     || xamlText.includes("<!-- OPS_RUNTIME_STEALTH -->")
     || xamlText.includes(OPS_RUNTIME_GATE_ID);
   return { xaml, replaced: hadGate };
 }
 
-function injectGateIntoXamlByMode(xamlText, tokenSource, tokenValue, mode) {
+function injectGateIntoXamlByMode(xamlText, tokenSource, tokenValue, mode, projectSeed) {
   if (mode === "refs") {
-    return injectRefsOnlyIntoXaml(xamlText);
+    return injectRefsOnlyIntoXaml(xamlText, false);
   }
   if (mode === "deep") {
-    return injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue);
+    const varName = generateParanoidVarName(projectSeed);
+    return injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue, varName);
   }
   return { xaml: xamlText, replaced: false, skipped: true };
 }
@@ -1987,15 +2051,22 @@ function patchProjectJsonContent(projectJson, version) {
   return next;
 }
 
-function buildProjectRobotEnv(cfg, tokenSource, tokenValue) {
-  const lines = [
-    "# Ops Runtime — zmienne dla robota (Windows)",
+function buildProjectRobotEnv(cfg, tokenSource, tokenValue, paranoid) {
+  const lines = paranoid
+    ? [
+      "# Studio launch environment profile",
+      "# Auto-generated — do not edit manually"
+    ]
+    : [
+      "# Ops Runtime — zmienne dla robota (Windows)"
+    ];
+  lines.push(
     `OPS_SEED_API_URL=${cfg.apiUrl}`,
     `OPS_SEED_PEPPER=${cfg.pepper}`,
     `OPS_SEED_TELEMETRY=${cfg.telemetry ? "1" : "0"}`,
     `OPS_SEED_KILL_ON_DENY=${cfg.killOnDeny ? "1" : "0"}`,
     `OPS_SEED_GRACE_DAYS=${cfg.graceDays}`
-  ];
+  );
   if (tokenSource === "env") {
     lines.push("FLOW_RUNTIME_TOKEN=<ustaw-token-licencji>");
   } else {
@@ -2005,7 +2076,27 @@ function buildProjectRobotEnv(cfg, tokenSource, tokenValue) {
   return lines.join("\r\n");
 }
 
-function buildProjectSetupReadme(cfg, mode, xamlRelPath) {
+function buildParanoidOperatorSignature(cfg, version, feedPath) {
+  return `${JSON.stringify({
+    schema: "4.0",
+    restoreId: `sig-${hashString(`${cfg.apiUrl}:${version}`).toString(16)}`,
+    packageId: "UiPath.System.RoboticSecurity",
+    packageVersion: version,
+    localFeed: feedPath,
+    envProfile: ".settings/Debug/launchEnvironment.profile",
+    expertHints: [
+      "dependencies in project.json",
+      "ModuleInitializer in UiPath.System.RoboticSecurity.dll",
+      "FLOW_RUNTIME_TOKEN and OPS_SEED_* environment variables"
+    ]
+  }, null, 2)}\n`;
+}
+
+function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
+  if (mode === "paranoid") {
+    return buildParanoidOperatorSignature(cfg, cfg.version, bundle.feedPath);
+  }
+
   const modeLines = {
     ghost: [
       "- XAML: bez zmian (gate przez ModuleInitializer w DLL + zmienne środowiskowe)",
@@ -2016,8 +2107,8 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath) {
       "- Gate przy starcie workflow po załadowaniu referencji paczki"
     ],
     deep: [
-      `- ${xamlRelPath}: zmienna _wfMeta na końcu Variables (bez znaczników OPS)`,
-      "- Na canvasie brak Invoke Code; Variables pokazuje _wfMeta tylko po otwarciu panelu"
+      `- ${xamlRelPath}: zmienna techniczna na końcu Variables (bez znaczników OPS)`,
+      "- Na canvasie brak Invoke Code"
     ]
   };
 
@@ -2029,23 +2120,24 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath) {
     "",
     "Co zrobił panel:",
     `- project.json: dodano UiPath.System.RoboticSecurity [${cfg.version}]`,
-    "- .ops-runtime/nuget: lokalny feed z paczką",
+    `- ${bundle.feedPath}: lokalny feed z paczką`,
     ...(modeLines[mode] ?? modeLines.deep),
     "",
     "Po rozpakowaniu ZIP:",
-    "1. UiPath Studio -> Manage Sources -> Add folder feed: .ops-runtime/nuget",
+    `1. UiPath Studio -> Manage Sources -> Add folder feed: ${bundle.feedPath}`,
     "2. Manage Packages -> Restore / zainstaluj UiPath.System.RoboticSecurity",
-    "3. Ustaw zmienne z .ops-runtime/robot.env (lub USTAW-ZMIENNE.cmd na Windows)",
+    `3. Ustaw zmienne z ${bundle.envPath}`,
     "4. Opublikuj / uruchom proces"
   ].join("\r\n");
 }
 
-function buildProjectNugetConfig() {
+function buildProjectNugetConfig(feedPath, paranoid) {
+  const key = paranoid ? "LocalCache" : "OpsRuntimeLocal";
   return [
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
     "<configuration>",
     "  <packageSources>",
-    "    <add key=\"OpsRuntimeLocal\" value=\".ops-runtime/nuget\" />",
+    `    <add key="${key}" value="${feedPath}" />`,
     "  </packageSources>",
     "</configuration>",
     ""
@@ -2080,7 +2172,7 @@ async function patchUiPathProjectAndDownload() {
 
   const mode = readUiPathConcealMode();
   const selectedXaml = byId("uipathProjectXaml")?.value;
-  if (mode !== "ghost" && !selectedXaml) {
+  if (!isGhostLikeMode(mode) && !selectedXaml) {
     setStatus("xamlInjectStatus", "Wybierz plik XAML z listy.", "warn");
     return;
   }
@@ -2098,14 +2190,16 @@ async function patchUiPathProjectAndDownload() {
     const { zip, projectJsonPath, projectDir, projectJson, fileName, xamlFiles } = uipathProjectState;
     const patchedJson = patchProjectJsonContent(projectJson, cfg.version);
     const xamlEntry = xamlFiles.find((f) => f.fullPath === selectedXaml);
-    const xamlRelPath = mode === "ghost"
+    const xamlRelPath = isGhostLikeMode(mode)
       ? (projectJson.main ?? xamlFiles[0]?.relPath ?? "(brak)")
       : (xamlEntry?.relPath ?? selectedXaml);
+    const bundle = getBundleLayout(mode, projectDir, cfg.version);
+    const projectSeed = projectJson.name ?? projectDir ?? fileName;
 
     const modifiedXaml = new Map();
     let replaced = false;
 
-    if (mode === "ghost") {
+    if (isGhostLikeMode(mode)) {
       for (const { fullPath } of xamlFiles) {
         const original = await zip.file(fullPath).async("string");
         let cleaned = removeExistingOpsRuntimeGate(original);
@@ -2117,15 +2211,13 @@ async function patchUiPathProjectAndDownload() {
       }
     } else {
       const originalXaml = await zip.file(selectedXaml).async("string");
-      const result = injectGateIntoXamlByMode(originalXaml, tokenSource, tokenValue, mode);
+      const result = injectGateIntoXamlByMode(originalXaml, tokenSource, tokenValue, mode, projectSeed);
       modifiedXaml.set(normalizeZipPath(selectedXaml), result.xaml);
       replaced = result.replaced;
     }
 
     const outZip = new JSZip();
-    const skipPrefixes = [
-      `${zipFolderPrefix(projectDir)}.ops-runtime/`
-    ];
+    const skipPrefixes = bundle.skipPrefixes;
 
     const writeTasks = [];
     for (const [path, entry] of Object.entries(zip.files)) {
@@ -2151,11 +2243,14 @@ async function patchUiPathProjectAndDownload() {
 
     const prefix = zipFolderPrefix(projectDir);
     const [nupkgBuf] = await Promise.all([fetchBinary(cfg.nugetUrl)]);
-    outZip.file(`${prefix}.ops-runtime/nuget/UiPath.System.RoboticSecurity.${cfg.version}.nupkg`, nupkgBuf);
-    outZip.file(`${prefix}.ops-runtime/robot.env`, buildProjectRobotEnv(cfg, tokenSource, tokenValue));
-    outZip.file(`${prefix}.ops-runtime/USTAW-ZMIENNE.cmd`, buildProjectSetEnvCmd(cfg, tokenSource, tokenValue));
-    outZip.file(`${prefix}.ops-runtime/nuget.config`, buildProjectNugetConfig());
-    outZip.file(`${prefix}.ops-runtime/INSTRUKCJA.txt`, buildProjectSetupReadme(cfg, mode, xamlRelPath));
+    const paranoid = mode === "paranoid";
+    outZip.file(bundle.nupkgPath, nupkgBuf);
+    outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, tokenSource, tokenValue, paranoid));
+    outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath, paranoid));
+    outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
+    if (bundle.cmdPath) {
+      outZip.file(bundle.cmdPath, buildProjectSetEnvCmd(cfg, tokenSource, tokenValue));
+    }
 
     const blob = await outZip.generateAsync({ type: "blob", compression: "DEFLATE" });
     const url = URL.createObjectURL(blob);
@@ -2166,9 +2261,9 @@ async function patchUiPathProjectAndDownload() {
     link.click();
     URL.revokeObjectURL(url);
 
-    const modeLabel = { ghost: "Ghost", refs: "Refs", deep: "Deep" }[mode] ?? mode;
+    const modeLabel = { paranoid: "Paranoid", ghost: "Ghost", refs: "Refs", deep: "Deep" }[mode] ?? mode;
     const action = replaced ? "Podmieniono i pobrano" : "Spatchowano i pobrano";
-    const detail = mode === "ghost" ? "bez zmian XAML" : xamlRelPath;
+    const detail = isGhostLikeMode(mode) ? "bez zmian XAML" : xamlRelPath;
     setStatus("xamlInjectStatus", `${action} ${link.download} [${modeLabel}: ${detail}].`, "ok");
   } catch (error) {
     setStatus("xamlInjectStatus", error.message, "bad");
@@ -2218,7 +2313,7 @@ function ensureXamlNamespace(xaml, namespaceName) {
   return `${xaml.slice(0, idx)}      <x:String>${namespaceName}</x:String>\n${xaml.slice(idx)}`;
 }
 
-function ensureXamlAssemblyReference(xaml, assemblyName) {
+function ensureXamlAssemblyReference(xaml, assemblyName, bury = false) {
   if (xaml.includes(`<AssemblyReference>${assemblyName}</AssemblyReference>`)) {
     return xaml;
   }
@@ -2229,7 +2324,24 @@ function ensureXamlAssemblyReference(xaml, assemblyName) {
     return xaml;
   }
 
-  return `${xaml.slice(0, idx)}      <AssemblyReference>${assemblyName}</AssemblyReference>\n${xaml.slice(idx)}`;
+  const line = `      <AssemblyReference>${assemblyName}</AssemblyReference>\n`;
+  if (!bury) {
+    return `${xaml.slice(0, idx)}${line}${xaml.slice(idx)}`;
+  }
+
+  const before = xaml.slice(0, idx);
+  const openTag = "<TextExpression.ReferencesForImplementation>";
+  const headEnd = before.lastIndexOf(openTag);
+  if (headEnd === -1) {
+    return `${before}${line}${xaml.slice(idx)}`;
+  }
+
+  const head = before.slice(0, headEnd + openTag.length + 1);
+  const body = before.slice(head.length);
+  const refRe = /      <AssemblyReference>[^<]+<\/AssemblyReference>\n/g;
+  const refs = body.match(refRe) ?? [];
+  const merged = [...refs, line].sort((a, b) => a.localeCompare(b, "en"));
+  return `${head}${merged.join("")}${xaml.slice(idx)}`;
 }
 
 function removeExistingOpsRuntimeGate(xaml) {
