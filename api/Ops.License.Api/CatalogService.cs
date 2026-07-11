@@ -4,18 +4,16 @@ namespace Ops.License.Api;
 
 public sealed class CatalogService
 {
-    private readonly GitHubContentsClient _github;
-    private readonly GitHubOptions _githubOptions;
+    private readonly ILicenseStore _store;
     private readonly ServerSettings _serverSettings;
     private readonly object _gate = new();
     private string? _cachedJwt;
     private DateTimeOffset _cachedAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
 
-    public CatalogService(GitHubContentsClient github, GitHubOptions githubOptions, ServerSettings serverSettings)
+    public CatalogService(ILicenseStore store, ServerSettings serverSettings)
     {
-        _github = github;
-        _githubOptions = githubOptions;
+        _store = store;
         _serverSettings = serverSettings;
         ApplyBootstrapperSettings();
     }
@@ -37,10 +35,15 @@ public sealed class CatalogService
             }
         }
 
-        var meta = await _github.GetFileAsync(_githubOptions.SeedPath, cancellationToken).ConfigureAwait(false);
+        var jwt = await _store.GetSeedJwtAsync(cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(jwt))
+        {
+            throw new FileNotFoundException("Catalog seed is not configured in the database.");
+        }
+
         lock (_gate)
         {
-            _cachedJwt = meta.Text.Trim();
+            _cachedJwt = jwt.Trim();
             _cachedAt = DateTimeOffset.UtcNow;
             return _cachedJwt;
         }
@@ -56,8 +59,7 @@ public sealed class CatalogService
 
     public async Task<PublishResult> PublishSeedJwtAsync(string jwt, string message, CancellationToken cancellationToken = default)
     {
-        var result = await _github.PublishTextFileAsync(_githubOptions.SeedPath, $"{jwt.Trim()}\n", message, cancellationToken)
-            .ConfigureAwait(false);
+        var result = await _store.PublishSeedJwtAsync(jwt, message, cancellationToken).ConfigureAwait(false);
         InvalidateCache();
         return result;
     }
