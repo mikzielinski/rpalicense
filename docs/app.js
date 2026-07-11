@@ -111,6 +111,7 @@ async function enterApp() {
   renderAll();
   if (state.panelUser?.isAdmin) {
     await refreshAccountsTable();
+    await loadOAuthSetup();
   }
 }
 
@@ -262,6 +263,7 @@ function bindUi() {
   byId("btnCheckLive").addEventListener("click", checkLiveStatus);
   byId("btnCreateAccount").addEventListener("click", createPanelAccount);
   byId("btnLinkOAuth").addEventListener("click", linkPanelAccountOAuth);
+  byId("btnSaveOAuthSetup").addEventListener("click", saveOAuthSetup);
   byId("btnClearLocalLog").addEventListener("click", () => {
     auditLog = [];
     renderAuditTable();
@@ -906,6 +908,79 @@ async function refreshAccountsTable() {
         }
       });
     });
+  } catch (error) {
+    setStatus("accountsStatus", error.message, "bad");
+  }
+}
+
+function detectPanelPublicUrl() {
+  const path = window.location.pathname.replace(/\/index\.html?$/i, "").replace(/\/$/, "");
+  return `${window.location.origin}${path}`;
+}
+
+function fillOAuthProviderForm(prefix, provider) {
+  byId(`${prefix}Enabled`).checked = Boolean(provider?.enabled);
+  byId(`${prefix}ClientId`).value = provider?.clientId ?? "";
+  byId(`${prefix}ClientSecret`).value = "";
+  byId(`${prefix}Callback`).value = provider?.callbackUrl ?? "";
+  const hint = byId(`${prefix}SecretHint`);
+  if (provider?.secretConfigured) {
+    hint.textContent = `Zapisany secret: ${provider.secretHint || "••••"}`;
+  } else {
+    hint.textContent = "Secret nie jest jeszcze zapisany.";
+  }
+}
+
+async function loadOAuthSetup() {
+  if (!state.panelUser?.isAdmin) return;
+  try {
+    const setup = await apiRequest("/v1/panel/oauth/setup", "GET");
+    byId("oauthPanelUrl").value = setup.panelPublicUrl || detectPanelPublicUrl();
+    byId("oauthApiUrl").value = setup.apiPublicUrl || apiBaseUrl();
+    fillOAuthProviderForm("oauthGithub", setup.github);
+    fillOAuthProviderForm("oauthGoogle", setup.google);
+  } catch (error) {
+    byId("oauthPanelUrl").value = detectPanelPublicUrl();
+    byId("oauthApiUrl").value = apiBaseUrl();
+    setStatus("accountsStatus", `OAuth: ${error.message}`, "warn");
+  }
+}
+
+async function saveOAuthSetup() {
+  if (!state.panelUser?.isAdmin) {
+    setStatus("accountsStatus", "Brak uprawnień administratora.", "bad");
+    return;
+  }
+
+  const panelPublicUrl = byId("oauthPanelUrl").value.trim();
+  const apiPublicUrl = byId("oauthApiUrl").value.trim();
+  if (!panelPublicUrl || !apiPublicUrl) {
+    setStatus("accountsStatus", "Podaj URL panelu i URL API.", "warn");
+    return;
+  }
+
+  const body = {
+    panelPublicUrl,
+    apiPublicUrl,
+    github: {
+      enabled: byId("oauthGithubEnabled").checked,
+      clientId: byId("oauthGithubClientId").value.trim(),
+      clientSecret: byId("oauthGithubClientSecret").value
+    },
+    google: {
+      enabled: byId("oauthGoogleEnabled").checked,
+      clientId: byId("oauthGoogleClientId").value.trim(),
+      clientSecret: byId("oauthGoogleClientSecret").value
+    }
+  };
+
+  try {
+    await apiRequest("/v1/panel/oauth/setup", "PUT", body);
+    byId("oauthGithubClientSecret").value = "";
+    byId("oauthGoogleClientSecret").value = "";
+    setStatus("accountsStatus", "Zapisano konfigurację OAuth.", "ok");
+    await loadOAuthSetup();
+    await loadOAuthProviders();
   } catch (error) {
     setStatus("accountsStatus", error.message, "bad");
   }

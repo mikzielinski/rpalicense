@@ -716,6 +716,41 @@ tbody tr:last-child td {
 .hint.ok { color: var(--good); }
 .hint.bad { color: var(--bad); }
 
+.readonly-field {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: default;
+}
+
+.oauth-provider-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin-bottom: 8px;
+}
+
+.oauth-provider-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.checkbox-row {
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.checkbox-row input {
+  width: auto;
+}
+
 .robot-filters {
   margin-bottom: 14px;
 }

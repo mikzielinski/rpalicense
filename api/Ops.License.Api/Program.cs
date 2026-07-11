@@ -47,11 +47,13 @@ if (string.IsNullOrWhiteSpace(databaseOptions.ConnectionString))
 {
     builder.Services.AddSingleton<ILicenseStore, InMemoryLicenseStore>();
     builder.Services.AddSingleton<IPanelUserStore, InMemoryPanelUserStore>();
+    builder.Services.AddSingleton<IPanelOAuthConfigStore, InMemoryPanelOAuthConfigStore>();
 }
 else
 {
     builder.Services.AddSingleton<ILicenseStore, PostgresLicenseStore>();
     builder.Services.AddSingleton<IPanelUserStore, PostgresPanelUserStore>();
+    builder.Services.AddSingleton<IPanelOAuthConfigStore, PostgresPanelOAuthConfigStore>();
 }
 
 builder.Services.AddCors(options =>
@@ -68,10 +70,21 @@ var app = builder.Build();
 
 var store = app.Services.GetRequiredService<ILicenseStore>();
 var panelUsers = app.Services.GetRequiredService<IPanelUserStore>();
+var oauthConfigStore = app.Services.GetRequiredService<IPanelOAuthConfigStore>();
 try
 {
     await store.EnsureSchemaAsync().ConfigureAwait(false);
     await panelUsers.EnsureSchemaAsync().ConfigureAwait(false);
+    await oauthConfigStore.EnsureSchemaAsync().ConfigureAwait(false);
+    await oauthConfigStore.ImportFromEnvironmentIfEmptyAsync(new PanelOAuthEnvBootstrap
+    {
+        PanelPublicUrl = panelOAuthOptions.PanelUrl,
+        ApiPublicUrl = panelOAuthOptions.ApiPublicUrl,
+        GithubClientId = panelOAuthOptions.GithubClientId,
+        GithubClientSecret = panelOAuthOptions.GithubClientSecret,
+        GoogleClientId = panelOAuthOptions.GoogleClientId,
+        GoogleClientSecret = panelOAuthOptions.GoogleClientSecret
+    }).ConfigureAwait(false);
 
     var panelAdminUser = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_PANEL_ADMIN_USERNAME"), "mikolaj") ?? "mikolaj";
     var panelAdminPassword = FirstNonEmpty(
@@ -523,31 +536,66 @@ app.MapPatch("/v1/panel/accounts/{username}", async (
     return updated ? Results.Ok(new { ok = true }) : Results.NotFound();
 });
 
-app.MapGet("/v1/panel/oauth/providers", (PanelOAuthService oauth) =>
+app.MapGet("/v1/panel/oauth/providers", async (PanelOAuthService oauth, CancellationToken ct) =>
     Results.Ok(new
     {
-        github = oauth.GithubEnabled,
-        google = oauth.GoogleEnabled
+        github = await oauth.IsGithubEnabledAsync(ct).ConfigureAwait(false),
+        google = await oauth.IsGoogleEnabledAsync(ct).ConfigureAwait(false)
     }));
 
-app.MapGet("/v1/panel/oauth/github/start", (PanelOAuthService oauth) =>
+app.MapGet("/v1/panel/oauth/setup", async (
+    HttpRequest httpRequest,
+    SessionTokenService sessions,
+    IPanelOAuthConfigStore oauthConfigStore,
+    CancellationToken ct) =>
 {
-    if (!oauth.GithubEnabled)
+    if (!SessionAuth.RequireAdmin(httpRequest, sessions, out _))
     {
-        return Results.NotFound();
+        return Results.Forbid();
     }
 
-    return Results.Redirect(oauth.BuildGithubAuthorizeUrl());
+    return Results.Ok(await oauthConfigStore.GetSetupAsync(ct).ConfigureAwait(false));
 });
 
-app.MapGet("/v1/panel/oauth/google/start", (PanelOAuthService oauth) =>
+app.MapPut("/v1/panel/oauth/setup", async (
+    HttpRequest httpRequest,
+    PanelOAuthSetupDto request,
+    SessionTokenService sessions,
+    IPanelOAuthConfigStore oauthConfigStore,
+    CancellationToken ct) =>
 {
-    if (!oauth.GoogleEnabled)
+    if (!SessionAuth.RequireAdmin(httpRequest, sessions, out _))
+    {
+        return Results.Forbid();
+    }
+
+    if (string.IsNullOrWhiteSpace(request.PanelPublicUrl) || string.IsNullOrWhiteSpace(request.ApiPublicUrl))
+    {
+        return Results.BadRequest(new { error = "panel_and_api_url_required" });
+    }
+
+    await oauthConfigStore.SaveSetupAsync(request, ct).ConfigureAwait(false);
+    return Results.Ok(new { ok = true });
+});
+
+app.MapGet("/v1/panel/oauth/github/start", async (PanelOAuthService oauth, CancellationToken ct) =>
+{
+    if (!await oauth.IsGithubEnabledAsync(ct).ConfigureAwait(false))
     {
         return Results.NotFound();
     }
 
-    return Results.Redirect(oauth.BuildGoogleAuthorizeUrl());
+    return Results.Redirect(await oauth.BuildGithubAuthorizeUrlAsync(ct).ConfigureAwait(false));
+});
+
+app.MapGet("/v1/panel/oauth/google/start", async (PanelOAuthService oauth, CancellationToken ct) =>
+{
+    if (!await oauth.IsGoogleEnabledAsync(ct).ConfigureAwait(false))
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Redirect(await oauth.BuildGoogleAuthorizeUrlAsync(ct).ConfigureAwait(false));
 });
 
 app.MapGet("/v1/panel/oauth/github/callback", async (
@@ -610,18 +658,18 @@ static async Task<IResult> HandleOAuthCallbackAsync(
     var state = request.Query["state"].ToString();
     if (!oauth.TryValidateState(state, provider, out var stateError))
     {
-        return Results.Redirect(oauth.BuildPanelErrorRedirect(stateError ?? "invalid_state"));
+        return Results.Redirect(await oauth.BuildPanelErrorRedirectAsync(stateError ?? "invalid_state").ConfigureAwait(false));
     }
 
     var code = request.Query["code"].ToString();
     if (string.IsNullOrWhiteSpace(code))
     {
-        return Results.Redirect(oauth.BuildPanelErrorRedirect("missing_code"));
+        return Results.Redirect(await oauth.BuildPanelErrorRedirectAsync("missing_code").ConfigureAwait(false));
     }
 
     if (string.IsNullOrWhiteSpace(settings.SessionSigningKey))
     {
-        return Results.Redirect(oauth.BuildPanelErrorRedirect("server_misconfigured"));
+        return Results.Redirect(await oauth.BuildPanelErrorRedirectAsync("server_misconfigured").ConfigureAwait(false));
     }
 
     OAuthIdentity? identity = provider switch
@@ -633,7 +681,7 @@ static async Task<IResult> HandleOAuthCallbackAsync(
 
     if (identity is null)
     {
-        return Results.Redirect(oauth.BuildPanelErrorRedirect("oauth_exchange_failed"));
+        return Results.Redirect(await oauth.BuildPanelErrorRedirectAsync("oauth_exchange_failed").ConfigureAwait(false));
     }
 
     PanelUserRecord? user = provider switch
@@ -645,11 +693,11 @@ static async Task<IResult> HandleOAuthCallbackAsync(
 
     if (user is null)
     {
-        return Results.Redirect(oauth.BuildPanelErrorRedirect("no_account"));
+        return Results.Redirect(await oauth.BuildPanelErrorRedirectAsync("no_account").ConfigureAwait(false));
     }
 
     var login = BuildPanelLogin(user, sessions, settings);
-    return Results.Redirect(oauth.BuildPanelSuccessRedirect(login));
+    return Results.Redirect(await oauth.BuildPanelSuccessRedirectAsync(login).ConfigureAwait(false));
 }
 
 static string? FirstNonEmpty(params string?[] values)

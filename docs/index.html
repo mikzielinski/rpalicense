@@ -16,7 +16,7 @@
         <p class="muted">Panel zarządzania licencjami</p>
       </div>
       <label>Login
-        <input id="loginUsername" type="text" autocomplete="username" placeholder="np. mikolaj" required>
+        <input id="loginUsername" type="text" autocomplete="username" placeholder="Twój login" required>
       </label>
       <label>Hasło
         <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" required>
@@ -88,10 +88,10 @@
               <input id="newAccountPassword" type="password" placeholder="min. 8 znaków (opcjonalne przy OAuth)">
             </label>
             <label>GitHub login
-              <input id="newAccountGithub" type="text" placeholder="np. mikzielinski">
+              <input id="newAccountGithub" type="text" placeholder="login GitHub">
             </label>
             <label>Google email
-              <input id="newAccountGoogle" type="email" placeholder="email@gmail.com">
+              <input id="newAccountGoogle" type="email" placeholder="adres Gmail">
             </label>
             <label>Rola
               <select id="newAccountIsAdmin">
@@ -110,17 +110,66 @@
           <p class="muted subsection-desc">Dla istniejącego konta — po powiązaniu użytkownik może logować się przez GitHub lub Google.</p>
           <div class="form-grid">
             <label>Login
-              <input id="linkAccountUsername" type="text" placeholder="np. mikolaj">
+              <input id="linkAccountUsername" type="text" placeholder="login konta">
             </label>
             <label>GitHub login
-              <input id="linkAccountGithub" type="text" placeholder="np. mikzielinski">
+              <input id="linkAccountGithub" type="text" placeholder="login GitHub">
             </label>
             <label>Google email
-              <input id="linkAccountGoogle" type="email" placeholder="email@gmail.com">
+              <input id="linkAccountGoogle" type="email" placeholder="adres Gmail">
             </label>
           </div>
           <div class="actions">
             <button id="btnLinkOAuth" type="button" class="btn-ghost">Zapisz powiązania</button>
+          </div>
+        </div>
+        <div class="subsection">
+          <h3>Logowanie OAuth (GitHub / Google)</h3>
+          <p class="muted subsection-desc">Sekrety są szyfrowane w bazie API. Client ID i callback URL skopiuj do konsoli GitHub/Google.</p>
+          <div class="form-grid">
+            <label>URL panelu
+              <input id="oauthPanelUrl" type="url" placeholder="https://twoja-domena.github.io/...">
+            </label>
+            <label>URL API
+              <input id="oauthApiUrl" type="url" placeholder="https://twoje-api.fly.dev">
+            </label>
+          </div>
+          <div class="oauth-provider-grid">
+            <div class="oauth-provider-card">
+              <label class="checkbox-row">
+                <input id="oauthGithubEnabled" type="checkbox">
+                <span>GitHub</span>
+              </label>
+              <label>Client ID
+                <input id="oauthGithubClientId" type="text" autocomplete="off">
+              </label>
+              <label>Client Secret
+                <input id="oauthGithubClientSecret" type="password" autocomplete="new-password" placeholder="Zostaw puste, aby zachować">
+              </label>
+              <label>Callback URL
+                <input id="oauthGithubCallback" type="text" class="readonly-field" readonly>
+              </label>
+              <p id="oauthGithubSecretHint" class="muted hint"></p>
+            </div>
+            <div class="oauth-provider-card">
+              <label class="checkbox-row">
+                <input id="oauthGoogleEnabled" type="checkbox">
+                <span>Google</span>
+              </label>
+              <label>Client ID
+                <input id="oauthGoogleClientId" type="text" autocomplete="off">
+              </label>
+              <label>Client Secret
+                <input id="oauthGoogleClientSecret" type="password" autocomplete="new-password" placeholder="Zostaw puste, aby zachować">
+              </label>
+              <label>Callback URL
+                <input id="oauthGoogleCallback" type="text" class="readonly-field" readonly>
+              </label>
+              <p id="oauthGoogleSecretHint" class="muted hint"></p>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="btnSaveOAuthSetup" type="button" class="primary">Zapisz OAuth</button>
           </div>
         </div>
         <p id="accountsStatus" class="status"></p>
@@ -156,10 +205,10 @@
         </div>
         <div class="form-grid">
           <label>Token ID
-            <input id="newTokenId" type="text" placeholder="RT-2026-Klient-001">
+            <input id="newTokenId" type="text" placeholder="identyfikator tokenu">
           </label>
           <label>Klient (owner)
-            <input id="newOwner" type="text" placeholder="Qiagen">
+            <input id="newOwner" type="text" placeholder="nazwa klienta">
           </label>
           <label>Ważna do
             <input id="newValidTo" type="datetime-local">
@@ -184,7 +233,7 @@
         </div>
         <div class="form-grid">
           <label>Token
-            <input id="checkTokenId" type="text" placeholder="RT-2026-Qiagen-69">
+            <input id="checkTokenId" type="text" placeholder="identyfikator tokenu">
           </label>
           <label>Maszyna (opcjonalnie)
             <input id="checkMachine" type="text" placeholder="nazwa komputera bota">
@@ -206,10 +255,10 @@
         <div id="robotEventsStats" class="stats-row"></div>
         <div class="form-grid robot-filters">
           <label>Filtr tokenu
-            <input id="robotFilterToken" type="text" placeholder="np. RT-2026-Qiagen-69">
+            <input id="robotFilterToken" type="text" placeholder="fragment tokenu">
           </label>
           <label>Filtr kodu
-            <input id="robotFilterCode" type="text" placeholder="np. boot-ok-remote">
+            <input id="robotFilterCode" type="text" placeholder="kod zdarzenia">
           </label>
           <label>Wynik
             <select id="robotFilterResult">
@@ -273,6 +322,6 @@
     </footer>
   </div>
 
-  <script src="./app.js?v=19"></script>
+  <script src="./app.js?v=20"></script>
 </body>
 </html>

@@ -10,32 +10,37 @@ public sealed class PanelOAuthService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly PanelOAuthOptions _options;
+    private readonly IPanelOAuthConfigStore _configStore;
     private readonly ServerSettings _settings;
     private readonly HttpClient _http;
 
-    public PanelOAuthService(PanelOAuthOptions options, ServerSettings settings, HttpClient http)
+    public PanelOAuthService(IPanelOAuthConfigStore configStore, ServerSettings settings, HttpClient http)
     {
-        _options = options;
+        _configStore = configStore;
         _settings = settings;
         _http = http;
     }
 
-    public bool GithubEnabled =>
-        !string.IsNullOrWhiteSpace(_options.GithubClientId) &&
-        !string.IsNullOrWhiteSpace(_options.GithubClientSecret);
-
-    public bool GoogleEnabled =>
-        !string.IsNullOrWhiteSpace(_options.GoogleClientId) &&
-        !string.IsNullOrWhiteSpace(_options.GoogleClientSecret);
-
-    public string BuildGithubAuthorizeUrl()
+    public async Task<bool> IsGithubEnabledAsync(CancellationToken cancellationToken = default)
     {
+        var config = await _configStore.GetRuntimeConfigAsync(cancellationToken).ConfigureAwait(false);
+        return config.GithubEnabled;
+    }
+
+    public async Task<bool> IsGoogleEnabledAsync(CancellationToken cancellationToken = default)
+    {
+        var config = await _configStore.GetRuntimeConfigAsync(cancellationToken).ConfigureAwait(false);
+        return config.GoogleEnabled;
+    }
+
+    public async Task<string> BuildGithubAuthorizeUrlAsync(CancellationToken cancellationToken = default)
+    {
+        var config = await _configStore.GetRuntimeConfigAsync(cancellationToken).ConfigureAwait(false);
         var state = IssueState("github");
-        var redirectUri = GithubCallbackUrl();
+        var redirectUri = GithubCallbackUrl(config);
         var query = new Dictionary<string, string?>
         {
-            ["client_id"] = _options.GithubClientId,
+            ["client_id"] = config.Github.ClientId,
             ["redirect_uri"] = redirectUri,
             ["scope"] = "read:user user:email",
             ["state"] = state
@@ -43,13 +48,14 @@ public sealed class PanelOAuthService
         return $"https://github.com/login/oauth/authorize?{BuildQuery(query)}";
     }
 
-    public string BuildGoogleAuthorizeUrl()
+    public async Task<string> BuildGoogleAuthorizeUrlAsync(CancellationToken cancellationToken = default)
     {
+        var config = await _configStore.GetRuntimeConfigAsync(cancellationToken).ConfigureAwait(false);
         var state = IssueState("google");
-        var redirectUri = GoogleCallbackUrl();
+        var redirectUri = GoogleCallbackUrl(config);
         var query = new Dictionary<string, string?>
         {
-            ["client_id"] = _options.GoogleClientId,
+            ["client_id"] = config.Google.ClientId,
             ["redirect_uri"] = redirectUri,
             ["response_type"] = "code",
             ["scope"] = "openid email profile",
@@ -107,14 +113,15 @@ public sealed class PanelOAuthService
 
     public async Task<OAuthIdentity?> ExchangeGithubAsync(string code, CancellationToken cancellationToken = default)
     {
+        var config = await _configStore.GetRuntimeConfigAsync(cancellationToken).ConfigureAwait(false);
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, "https://github.com/login/oauth/access_token");
         tokenRequest.Headers.Accept.ParseAdd("application/json");
         tokenRequest.Content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
-            ["client_id"] = _options.GithubClientId,
-            ["client_secret"] = _options.GithubClientSecret,
+            ["client_id"] = config.Github.ClientId,
+            ["client_secret"] = config.Github.ClientSecret,
             ["code"] = code,
-            ["redirect_uri"] = GithubCallbackUrl()
+            ["redirect_uri"] = GithubCallbackUrl(config)
         });
 
         using var tokenResponse = await _http.SendAsync(tokenRequest, cancellationToken).ConfigureAwait(false);
@@ -157,13 +164,14 @@ public sealed class PanelOAuthService
 
     public async Task<OAuthIdentity?> ExchangeGoogleAsync(string code, CancellationToken cancellationToken = default)
     {
+        var config = await _configStore.GetRuntimeConfigAsync(cancellationToken).ConfigureAwait(false);
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, "https://oauth2.googleapis.com/token");
         tokenRequest.Content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
-            ["client_id"] = _options.GoogleClientId,
-            ["client_secret"] = _options.GoogleClientSecret,
+            ["client_id"] = config.Google.ClientId,
+            ["client_secret"] = config.Google.ClientSecret,
             ["code"] = code,
-            ["redirect_uri"] = GoogleCallbackUrl(),
+            ["redirect_uri"] = GoogleCallbackUrl(config),
             ["grant_type"] = "authorization_code"
         });
 
@@ -202,21 +210,29 @@ public sealed class PanelOAuthService
         return new OAuthIdentity("google", email.Trim().ToLowerInvariant(), email.Trim().ToLowerInvariant());
     }
 
-    public string BuildPanelSuccessRedirect(PanelLoginResponse login) =>
-        $"{NormalizePanelUrl()}#oauth=success&sessionToken={Uri.EscapeDataString(login.SessionToken)}" +
-        $"&username={Uri.EscapeDataString(login.Username)}&isAdmin={(login.IsAdmin ? "1" : "0")}" +
-        $"&expiresAt={Uri.EscapeDataString(login.ExpiresAt)}";
+    public async Task<string> BuildPanelSuccessRedirectAsync(PanelLoginResponse login, CancellationToken cancellationToken = default)
+    {
+        var config = await _configStore.GetRuntimeConfigAsync(cancellationToken).ConfigureAwait(false);
+        return $"{NormalizePanelUrl(config)}#oauth=success&sessionToken={Uri.EscapeDataString(login.SessionToken)}" +
+               $"&username={Uri.EscapeDataString(login.Username)}&isAdmin={(login.IsAdmin ? "1" : "0")}" +
+               $"&expiresAt={Uri.EscapeDataString(login.ExpiresAt)}";
+    }
 
-    public string BuildPanelErrorRedirect(string error) =>
-        $"{NormalizePanelUrl()}#oauth=error&reason={Uri.EscapeDataString(error)}";
+    public async Task<string> BuildPanelErrorRedirectAsync(string error, CancellationToken cancellationToken = default)
+    {
+        var config = await _configStore.GetRuntimeConfigAsync(cancellationToken).ConfigureAwait(false);
+        return $"{NormalizePanelUrl(config)}#oauth=error&reason={Uri.EscapeDataString(error)}";
+    }
 
-    private string GithubCallbackUrl() => $"{NormalizeApiUrl()}/v1/panel/oauth/github/callback";
+    private static string GithubCallbackUrl(PanelOAuthRuntimeConfig config) =>
+        $"{NormalizeApiUrl(config)}/v1/panel/oauth/github/callback";
 
-    private string GoogleCallbackUrl() => $"{NormalizeApiUrl()}/v1/panel/oauth/google/callback";
+    private static string GoogleCallbackUrl(PanelOAuthRuntimeConfig config) =>
+        $"{NormalizeApiUrl(config)}/v1/panel/oauth/google/callback";
 
-    private string NormalizePanelUrl() => _options.PanelUrl.TrimEnd('/');
+    private static string NormalizePanelUrl(PanelOAuthRuntimeConfig config) => config.PanelPublicUrl.TrimEnd('/');
 
-    private string NormalizeApiUrl() => _options.ApiPublicUrl.TrimEnd('/');
+    private static string NormalizeApiUrl(PanelOAuthRuntimeConfig config) => config.ApiPublicUrl.TrimEnd('/');
 
     private string IssueState(string provider)
     {

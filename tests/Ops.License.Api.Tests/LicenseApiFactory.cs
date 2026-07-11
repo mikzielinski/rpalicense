@@ -49,6 +49,9 @@ internal sealed class LicenseApiFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IPanelUserStore>();
             services.AddSingleton<IPanelUserStore, InMemoryPanelUserStore>();
+
+            services.RemoveAll<IPanelOAuthConfigStore>();
+            services.AddSingleton<IPanelOAuthConfigStore, InMemoryPanelOAuthConfigStore>();
         });
     }
 
