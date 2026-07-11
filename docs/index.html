@@ -8,212 +8,214 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <header class="app-header">
-    <div class="header-row">
-      <div>
-        <h1>Ops Runtime — Panel licencji</h1>
-        <p id="headerStatus" class="muted">Ładowanie…</p>
-      </div>
-      <div class="header-actions">
-        <button id="btnRefreshLive" type="button">Odśwież z serwera</button>
-        <button id="btnPublishAll" type="button" class="primary">Zapisz i opublikuj</button>
-      </div>
-    </div>
-  </header>
-
-  <main class="layout">
-    <details class="card settings-card">
-      <summary>Ustawienia (jednorazowo)</summary>
-      <div class="form-grid">
-        <label>Operator (kto)
-          <input id="cfgOperator" type="text" placeholder="np. mikolaj">
-        </label>
-        <label>GitHub owner
-          <input id="cfgGhOwner" type="text">
-        </label>
-        <label>GitHub repo
-          <input id="cfgGhRepo" type="text">
-        </label>
-        <label>Branch
-          <input id="cfgGhBranch" type="text" value="main">
-        </label>
-        <label>URL seed.jwt (live)
-          <input id="cfgSeedUrl" type="url">
-        </label>
-        <label>URL API (zalecane — własny serwer)
-          <input id="cfgApiBaseUrl" type="url" placeholder="https://license.example.com">
-        </label>
-        <label>Sekret operatora (handshake)
-          <input id="cfgOperatorSecret" type="password" placeholder="OPS_OPERATOR_SECRET — ten sam co na serwerze">
-        </label>
-        <label>GitHub token (legacy — tylko Actions dispatch)
-          <input id="cfgGhToken" type="password" placeholder="opcjonalnie — uruchamia workflow">
-        </label>
-        <label>Pepper (szyfrowanie payload)
-          <input id="cfgPepper" type="password">
-        </label>
-        <label>Envelope pepper
-          <input id="cfgEnvelopePepper" type="password">
-        </label>
-        <label>JWT signing key
-          <input id="cfgJwtSigningKey" type="password">
-        </label>
-        <label>Issuer
-          <input id="cfgIssuer" type="text">
-        </label>
-        <label>Audience
-          <input id="cfgAudience" type="text">
-        </label>
-      </div>
-      <label>Klucz RSA (JWK prywatny — seal)
-        <textarea id="cfgSealJwk" rows="4" spellcheck="false" placeholder='{"kty":"RSA","n":"…","e":"…","d":"…"}'></textarea>
+  <div id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-card card">
+      <h1>Ops Runtime</h1>
+      <p class="muted">Zaloguj się do panelu licencji</p>
+      <label>Login
+        <input id="loginUsername" type="text" autocomplete="username" required>
       </label>
-      <p id="jwkHint" class="hint">Wymagany pełny JWK (~2400 znaków).</p>
-      <div class="actions">
-        <button id="btnSaveSettings" type="button">Zapisz ustawienia</button>
-        <button id="btnLoadTestJwk" type="button">Załaduj klucz testowy</button>
-        <button id="btnTestGitHub" type="button">Testuj połączenie</button>
-      </div>
-      <p id="settingsStatus" class="status"></p>
-    </details>
-
-    <section class="card">
-      <div class="section-head">
-        <h2>Licencje</h2>
-        <span id="licenseCount" class="badge">0</span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Token</th>
-              <th>Klient</th>
-              <th>Ważna do</th>
-              <th>Status</th>
-              <th>Akcje</th>
-            </tr>
-          </thead>
-          <tbody id="licenseTableBody"></tbody>
-        </table>
-      </div>
-      <p id="publishStatus" class="status">Panel ładuje ustawienia z panel.defaults.json — działa od razu na każdym komputerze.</p>
-    </section>
-
-    <section class="card">
-      <h2>Nowa licencja</h2>
-      <div class="form-grid">
-        <label>Token ID
-          <input id="newTokenId" type="text" placeholder="RT-2026-Klient-001">
-        </label>
-        <label>Klient (owner)
-          <input id="newOwner" type="text" placeholder="Qiagen">
-        </label>
-        <label>Ważna do
-          <input id="newValidTo" type="datetime-local">
-        </label>
-        <label>Maszyny (opcjonalnie, CSV)
-          <input id="newHosts" type="text" placeholder="ROBOT01,ROBOT02 lub puste">
-        </label>
-      </div>
-      <label>Prompt agenta
-        <textarea id="newPrompt" rows="2" spellcheck="false">Jestes agentem workflow. Odpowiadasz tylko na temat procesu.</textarea>
+      <label>Hasło
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
       </label>
-      <div class="actions">
-        <button id="btnCreateLicense" type="button" class="primary">Utwórz licencję</button>
-      </div>
-      <p id="createStatus" class="status"></p>
-    </section>
+      <button type="submit" class="primary">Zaloguj</button>
+      <p id="loginStatus" class="status"></p>
+    </form>
+  </div>
 
-    <section class="card">
-      <h2>Sprawdź status (na żywo z serwera)</h2>
-      <div class="form-grid">
-        <label>Token
-          <input id="checkTokenId" type="text" placeholder="RT-2026-Qiagen-69">
+  <div id="appShell" class="hidden">
+    <header class="app-header">
+      <div class="header-row">
+        <div>
+          <h1>Ops Runtime — Panel licencji</h1>
+          <p id="headerStatus" class="muted">Ładowanie…</p>
+        </div>
+        <div class="header-actions">
+          <span id="headerUser" class="user-badge muted"></span>
+          <button id="btnRefreshLive" type="button">Odśwież z serwera</button>
+          <button id="btnPublishAll" type="button" class="primary">Zapisz i opublikuj</button>
+          <button id="btnLogout" type="button">Wyloguj</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section id="accountsCard" class="card hidden">
+        <div class="section-head">
+          <h2>Konta panelu</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Login</th>
+                <th>Rola</th>
+                <th>Utworzono</th>
+                <th>Akcje</th>
+              </tr>
+            </thead>
+            <tbody id="accountsTableBody"></tbody>
+          </table>
+        </div>
+        <h3>Nowe konto</h3>
+        <div class="form-grid">
+          <label>Login
+            <input id="newAccountUsername" type="text" placeholder="min. 3 znaki">
+          </label>
+          <label>Hasło
+            <input id="newAccountPassword" type="password" placeholder="min. 8 znaków">
+          </label>
+          <label>Administrator
+            <select id="newAccountIsAdmin">
+              <option value="0">Operator</option>
+              <option value="1">Administrator</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button id="btnCreateAccount" type="button" class="primary">Dodaj konto</button>
+        </div>
+        <p id="accountsStatus" class="status"></p>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Licencje</h2>
+          <span id="licenseCount" class="badge">0</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th>Klient</th>
+                <th>Ważna do</th>
+                <th>Status</th>
+                <th>Akcje</th>
+              </tr>
+            </thead>
+            <tbody id="licenseTableBody"></tbody>
+          </table>
+        </div>
+        <p id="publishStatus" class="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>Nowa licencja</h2>
+        <div class="form-grid">
+          <label>Token ID
+            <input id="newTokenId" type="text" placeholder="RT-2026-Klient-001">
+          </label>
+          <label>Klient (owner)
+            <input id="newOwner" type="text" placeholder="Qiagen">
+          </label>
+          <label>Ważna do
+            <input id="newValidTo" type="datetime-local">
+          </label>
+          <label>Maszyny (opcjonalnie, CSV)
+            <input id="newHosts" type="text" placeholder="ROBOT01,ROBOT02 lub puste">
+          </label>
+        </div>
+        <label>Prompt agenta
+          <textarea id="newPrompt" rows="2" spellcheck="false">Jestes agentem workflow. Odpowiadasz tylko na temat procesu.</textarea>
         </label>
-        <label>Maszyna (opcjonalnie)
-          <input id="checkMachine" type="text" placeholder="nazwa komputera bota">
-        </label>
-      </div>
-      <div class="actions">
-        <button id="btnCheckLive" type="button">Sprawdź teraz</button>
-      </div>
-      <pre id="checkResult" class="result-box">—</pre>
-    </section>
+        <div class="actions">
+          <button id="btnCreateLicense" type="button" class="primary">Utwórz licencję</button>
+        </div>
+        <p id="createStatus" class="status"></p>
+      </section>
 
-    <section class="card">
-      <div class="section-head">
-        <h2>Sprawdzenia robotów</h2>
-        <span id="robotEventsCount" class="badge">0</span>
-      </div>
-      <p class="hint">Zdarzenia z botów UiPath po włączeniu telemetrii (<code>OPS_SEED_TELEMETRY=1</code> + URL API i klucz na robocie).</p>
-      <div id="robotEventsStats" class="stats-row"></div>
-      <div class="form-grid robot-filters">
-        <label>Filtr tokenu
-          <input id="robotFilterToken" type="text" placeholder="np. RT-2026-Qiagen-69">
-        </label>
-        <label>Filtr kodu
-          <input id="robotFilterCode" type="text" placeholder="np. boot-ok-remote">
-        </label>
-        <label>Wynik
-          <select id="robotFilterResult">
-            <option value="">Wszystkie</option>
-            <option value="ok">OK</option>
-            <option value="fail">Błąd</option>
-          </select>
-        </label>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Kiedy (UTC)</th>
-              <th>Token</th>
-              <th>Maszyna</th>
-              <th>Kod</th>
-              <th>Wynik</th>
-              <th>Cache</th>
-              <th>Proces</th>
-              <th>Użytkownik</th>
-              <th>Szczegóły</th>
-            </tr>
-          </thead>
-          <tbody id="robotEventsTableBody"></tbody>
-        </table>
-      </div>
-    </section>
+      <section class="card">
+        <h2>Sprawdź status (na żywo z serwera)</h2>
+        <div class="form-grid">
+          <label>Token
+            <input id="checkTokenId" type="text" placeholder="RT-2026-Qiagen-69">
+          </label>
+          <label>Maszyna (opcjonalnie)
+            <input id="checkMachine" type="text" placeholder="nazwa komputera bota">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="btnCheckLive" type="button">Sprawdź teraz</button>
+        </div>
+        <pre id="checkResult" class="result-box">—</pre>
+      </section>
 
-    <section class="card">
-      <div class="section-head">
-        <h2>Dziennik operatora</h2>
-        <button id="btnClearLocalLog" type="button" class="small">Wyczyść widok</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Kiedy (UTC)</th>
-              <th>Kto</th>
-              <th>Akcja</th>
-              <th>Token</th>
-              <th>Status</th>
-              <th>Szczegóły</th>
-            </tr>
-          </thead>
-          <tbody id="auditTableBody"></tbody>
-        </table>
-      </div>
-    </section>
+      <section class="card">
+        <div class="section-head">
+          <h2>Sprawdzenia robotów</h2>
+          <span id="robotEventsCount" class="badge">0</span>
+        </div>
+        <p class="hint">Zdarzenia z botów UiPath po włączeniu telemetrii (<code>OPS_SEED_TELEMETRY=1</code> + URL API na robocie).</p>
+        <div id="robotEventsStats" class="stats-row"></div>
+        <div class="form-grid robot-filters">
+          <label>Filtr tokenu
+            <input id="robotFilterToken" type="text" placeholder="np. RT-2026-Qiagen-69">
+          </label>
+          <label>Filtr kodu
+            <input id="robotFilterCode" type="text" placeholder="np. boot-ok-remote">
+          </label>
+          <label>Wynik
+            <select id="robotFilterResult">
+              <option value="">Wszystkie</option>
+              <option value="ok">OK</option>
+              <option value="fail">Błąd</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Kiedy (UTC)</th>
+                <th>Token</th>
+                <th>Maszyna</th>
+                <th>Kod</th>
+                <th>Wynik</th>
+                <th>Cache</th>
+                <th>Proces</th>
+                <th>Użytkownik</th>
+                <th>Szczegóły</th>
+              </tr>
+            </thead>
+            <tbody id="robotEventsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
 
-    <details class="card">
-      <summary>Zaawansowane — surowy katalog JSON</summary>
-      <textarea id="catalogRaw" rows="10" spellcheck="false" readonly></textarea>
-    </details>
-  </main>
+      <section class="card">
+        <div class="section-head">
+          <h2>Dziennik operatora</h2>
+          <button id="btnClearLocalLog" type="button" class="small">Wyczyść widok</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Kiedy (UTC)</th>
+                <th>Kto</th>
+                <th>Akcja</th>
+                <th>Token</th>
+                <th>Status</th>
+                <th>Szczegóły</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody"></tbody>
+          </table>
+        </div>
+      </section>
 
-  <footer class="app-footer">
-    <p>Sekrety kryptograficzne lokalnie w przeglądarce. Publikacja przez GitHub Actions — PAT nie zapisuje plików bezpośrednio, tylko uruchamia workflow.</p>
-  </footer>
+      <details class="card">
+        <summary>Zaawansowane — surowy katalog JSON</summary>
+        <textarea id="catalogRaw" rows="10" spellcheck="false" readonly></textarea>
+      </details>
+    </main>
 
-  <script src="./app.js?v=15"></script>
+    <footer class="app-footer">
+      <p>Logowanie przez API Fly.io + Neon PostgreSQL. Konta zarządzane przez administratora panelu.</p>
+    </footer>
+  </div>
+
+  <script src="./app.js?v=16"></script>
 </body>
 </html>

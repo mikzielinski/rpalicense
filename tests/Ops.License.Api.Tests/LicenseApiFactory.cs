@@ -31,6 +31,7 @@ internal sealed class LicenseApiFactory : WebApplicationFactory<Program>
 
         Environment.SetEnvironmentVariable("DATABASE_URL", null);
         Environment.SetEnvironmentVariable("NEON_DATABASE_URL", null);
+        Environment.SetEnvironmentVariable("OPS_PANEL_ADMIN_PASSWORD", OperatorSecret);
         Environment.SetEnvironmentVariable("OPS_OPERATOR_SECRET", OperatorSecret);
         Environment.SetEnvironmentVariable("OPS_SESSION_SIGNING_KEY", SessionSigningKey);
         Environment.SetEnvironmentVariable("OPS_SEED_PEPPER", _manifest.Pepper);
@@ -45,6 +46,9 @@ internal sealed class LicenseApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<ILicenseStore>();
             services.AddSingleton(_store);
             services.AddSingleton<ILicenseStore>(sp => sp.GetRequiredService<InMemoryLicenseStore>());
+
+            services.RemoveAll<IPanelUserStore>();
+            services.AddSingleton<IPanelUserStore, InMemoryPanelUserStore>();
         });
     }
 
