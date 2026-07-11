@@ -1,0 +1,21 @@
+{
+  "name": "SampleOpsProject",
+  "description": "Przykladowy projekt do testu patchera panelu",
+  "main": "Main.xaml",
+  "dependencies": {
+    "UiPath.System.Activities": "[24.10.0]"
+  },
+  "schemaVersion": "4.0",
+  "studioVersion": "24.10.0.0",
+  "projectVersion": "1.0.0",
+  "expressionLanguage": "CSharp",
+  "entryPoints": [
+    {
+      "filePath": "Main.xaml",
+      "uniqueId": "11111111-1111-1111-1111-111111111111",
+      "input": [],
+      "output": []
+    }
+  ],
+  "targetFramework": "Windows"
+}

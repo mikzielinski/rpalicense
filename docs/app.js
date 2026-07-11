@@ -268,6 +268,8 @@ function bindUi() {
   byId("btnSaveOAuthSetup").addEventListener("click", saveOAuthSetup);
   byId("btnDownloadRobotPackage").addEventListener("click", downloadSelectedRobotPackages);
   byId("btnInjectXaml").addEventListener("click", injectXamlAndDownload);
+  byId("btnPatchUiPathProject").addEventListener("click", patchUiPathProjectAndDownload);
+  byId("uipathProjectZip").addEventListener("change", onUiPathProjectZipSelected);
   byId("xamlInjectTokenSource").addEventListener("change", updateXamlInjectTokenFields);
   byId("btnClearLocalLog").addEventListener("click", () => {
     auditLog = [];
@@ -1648,6 +1650,9 @@ function sanitizeZipSegment(value) {
 
 const OPS_RUNTIME_GATE_ID = "InvokeCode_OpsRuntimeGate";
 const OPS_RUNTIME_GATE_NS = "UiPath.System.RoboticSecurity";
+const OPS_RUNTIME_STEALTH_VAR = "__opsRuntimeGate";
+
+let uipathProjectState = null;
 
 function updateXamlInjectTokenFields() {
   const mode = byId("xamlInjectTokenSource")?.value ?? "env";
@@ -1684,6 +1689,350 @@ function xmlEscapeAttribute(text) {
     .replace(/\r\n/g, "&#xA;")
     .replace(/\n/g, "&#xA;")
     .replace(/\r/g, "&#xA;");
+}
+
+function buildStealthGateExpression(tokenSource, tokenValue) {
+  if (tokenSource === "env") {
+    return '[UiPath.System.RoboticSecurity.Bootstrapper.Initialize(System.Environment.GetEnvironmentVariable("FLOW_RUNTIME_TOKEN"))]';
+  }
+  const safeToken = String(tokenValue).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize("${safeToken}")]`;
+}
+
+function buildStealthGateVariable(tokenSource, tokenValue) {
+  const expression = buildStealthGateExpression(tokenSource, tokenValue);
+  const escaped = expression
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;");
+  return `<!-- OPS_RUNTIME_STEALTH -->\n      <Variable x:TypeArguments="x:Object" Default="${escaped}" Name="${OPS_RUNTIME_STEALTH_VAR}" />`;
+}
+
+function removeExistingStealthGate(xaml) {
+  let cleaned = xaml.replace(
+    /<!-- OPS_RUNTIME_STEALTH -->\s*<Variable[^>]*Name="__opsRuntimeGate"[^>]*(?:\/>|>[\s\S]*?<\/Variable>)\s*/g,
+    ""
+  );
+  cleaned = cleaned.replace(
+    /<Variable[^>]*Name="__opsRuntimeGate"[^>]*(?:\/>|>[\s\S]*?<\/Variable>)\s*/g,
+    ""
+  );
+  cleaned = cleaned.replace(/<Sequence\.Variables>\s*<\/Sequence\.Variables>\s*/g, "");
+  return cleaned;
+}
+
+function injectStealthGateIntoXaml(xamlText, tokenSource, tokenValue) {
+  if (!xamlText.includes("<Sequence")) {
+    throw new Error("Nie znaleziono głównej sekwencji (<Sequence>).");
+  }
+
+  let xaml = removeExistingOpsRuntimeGate(xamlText);
+  xaml = removeExistingStealthGate(xaml);
+  xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS);
+
+  const variableXml = buildStealthGateVariable(tokenSource, tokenValue);
+  const varsOpen = xaml.match(/<Sequence\.Variables>/);
+  if (varsOpen?.index !== undefined) {
+    const idx = varsOpen.index + varsOpen[0].length;
+    xaml = `${xaml.slice(0, idx)}\n      ${variableXml}\n${xaml.slice(idx)}`;
+  } else {
+    const seqMatch = xaml.match(/<Sequence\b[^>]*>/);
+    if (seqMatch?.index === undefined) {
+      throw new Error("Nie udało się znaleźć sekwencji do wstrzyknięcia zmiennej.");
+    }
+    const idx = seqMatch.index + seqMatch[0].length;
+    const block = `\n    <Sequence.Variables>\n      ${variableXml}\n    </Sequence.Variables>\n`;
+    xaml = xaml.slice(0, idx) + block + xaml.slice(idx);
+  }
+
+  const hadGate = xamlText.includes(OPS_RUNTIME_STEALTH_VAR)
+    || xamlText.includes("<!-- OPS_RUNTIME_STEALTH -->")
+    || xamlText.includes(OPS_RUNTIME_GATE_ID);
+  return { xaml, replaced: hadGate };
+}
+
+function normalizeZipPath(path) {
+  return String(path).replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function findProjectJsonPath(paths) {
+  const matches = paths
+    .map(normalizeZipPath)
+    .filter((p) => /(^|\/)project\.json$/i.test(p));
+  if (!matches.length) {
+    return null;
+  }
+  matches.sort((a, b) => a.split("/").length - b.split("/").length);
+  return matches[0];
+}
+
+function projectDirFromJsonPath(projectJsonPath) {
+  const parts = normalizeZipPath(projectJsonPath).split("/");
+  parts.pop();
+  return parts.join("/");
+}
+
+function listProjectXamlFiles(paths, projectDir) {
+  const prefix = projectDir ? `${projectDir}/` : "";
+  return paths
+    .map(normalizeZipPath)
+    .filter((p) => p.toLowerCase().endsWith(".xaml"))
+    .filter((p) => !projectDir || p.startsWith(prefix))
+    .map((p) => ({
+      fullPath: p,
+      relPath: projectDir ? p.slice(prefix.length) : p
+    }))
+    .sort((a, b) => a.relPath.localeCompare(b.relPath, "pl"));
+}
+
+function prioritizeXamlFiles(xamlFiles, projectJson) {
+  const preferred = new Set();
+  if (projectJson?.main) {
+    preferred.add(normalizeZipPath(projectJson.main));
+  }
+  for (const entry of projectJson?.entryPoints ?? []) {
+    if (entry?.filePath) {
+      preferred.add(normalizeZipPath(entry.filePath));
+    }
+  }
+
+  return [...xamlFiles].sort((a, b) => {
+    const aPref = preferred.has(a.relPath) ? 0 : 1;
+    const bPref = preferred.has(b.relPath) ? 0 : 1;
+    if (aPref !== bPref) return aPref - bPref;
+    if (a.relPath === "Main.xaml") return -1;
+    if (b.relPath === "Main.xaml") return 1;
+    return a.relPath.localeCompare(b.relPath, "pl");
+  });
+}
+
+function renderUiPathProjectXamlSelect(xamlFiles, projectJson) {
+  const select = byId("uipathProjectXaml");
+  const ordered = prioritizeXamlFiles(xamlFiles, projectJson);
+  select.innerHTML = "";
+  for (const file of ordered) {
+    const option = document.createElement("option");
+    option.value = file.fullPath;
+    const mark = (projectJson?.main === file.relPath) ? " ★ main" : "";
+    option.textContent = `${file.relPath}${mark}`;
+    select.appendChild(option);
+  }
+  select.disabled = !ordered.length;
+  byId("btnPatchUiPathProject").disabled = !ordered.length;
+}
+
+async function onUiPathProjectZipSelected() {
+  const fileInput = byId("uipathProjectZip");
+  const file = fileInput?.files?.[0];
+  const meta = byId("uipathProjectMeta");
+  uipathProjectState = null;
+  byId("btnPatchUiPathProject").disabled = true;
+
+  if (!file) {
+    renderUiPathProjectXamlSelect([], null);
+    meta.textContent = "";
+    return;
+  }
+
+  if (typeof JSZip === "undefined") {
+    setStatus("xamlInjectStatus", "Brak biblioteki JSZip — odśwież stronę.", "bad");
+    return;
+  }
+
+  setStatus("xamlInjectStatus", "Analizuję projekt…", "");
+
+  try {
+    const zip = await JSZip.loadAsync(file);
+    const paths = Object.keys(zip.files).filter((p) => !zip.files[p].dir).map(normalizeZipPath);
+    const projectJsonPath = findProjectJsonPath(paths);
+    if (!projectJsonPath) {
+      throw new Error("W ZIP nie ma project.json — spakuj cały folder projektu UiPath.");
+    }
+
+    const projectDir = projectDirFromJsonPath(projectJsonPath);
+    const projectJson = JSON.parse(await zip.file(projectJsonPath).async("string"));
+    const xamlFiles = listProjectXamlFiles(paths, projectDir);
+    if (!xamlFiles.length) {
+      throw new Error("W projekcie nie znaleziono plików .xaml.");
+    }
+
+    uipathProjectState = {
+      zip,
+      fileName: file.name,
+      projectJsonPath,
+      projectDir,
+      projectJson,
+      xamlFiles
+    };
+
+    renderUiPathProjectXamlSelect(xamlFiles, projectJson);
+    const projectName = projectJson.name ?? projectDir ?? "projekt";
+    meta.textContent = `Wykryto: ${projectName} · ${xamlFiles.length} workflow · ${projectJsonPath}`;
+    setStatus("xamlInjectStatus", "Projekt gotowy do patchowania.", "ok");
+  } catch (error) {
+    renderUiPathProjectXamlSelect([], null);
+    meta.textContent = "";
+    setStatus("xamlInjectStatus", error.message, "bad");
+  }
+}
+
+function patchProjectJsonContent(projectJson, version) {
+  const next = { ...projectJson };
+  next.dependencies = { ...(next.dependencies ?? {}) };
+  next.dependencies["UiPath.System.RoboticSecurity"] = `[${version}]`;
+  return next;
+}
+
+function buildProjectRobotEnv(cfg, tokenSource, tokenValue) {
+  const lines = [
+    "# Ops Runtime — zmienne dla robota (Windows)",
+    `OPS_SEED_API_URL=${cfg.apiUrl}`,
+    `OPS_SEED_PEPPER=${cfg.pepper}`,
+    `OPS_SEED_TELEMETRY=${cfg.telemetry ? "1" : "0"}`,
+    `OPS_SEED_KILL_ON_DENY=${cfg.killOnDeny ? "1" : "0"}`,
+    `OPS_SEED_GRACE_DAYS=${cfg.graceDays}`
+  ];
+  if (tokenSource === "env") {
+    lines.push("FLOW_RUNTIME_TOKEN=<ustaw-token-licencji>");
+  } else {
+    lines.push(`FLOW_RUNTIME_TOKEN=${tokenValue}`);
+  }
+  lines.push("");
+  return lines.join("\r\n");
+}
+
+function buildProjectSetupReadme(cfg, xamlRelPath) {
+  return [
+    "Ops Runtime — patch projektu UiPath",
+    "===================================",
+    "",
+    "Co zrobił panel:",
+    `- project.json: dodano UiPath.System.RoboticSecurity [${cfg.version}]`,
+    `- .ops-runtime/nuget: lokalny feed z paczką`,
+    `- ${xamlRelPath}: ukryty gate w zmiennej sekwencji __opsRuntimeGate`,
+    "",
+    "Po rozpakowaniu ZIP:",
+    "1. UiPath Studio -> Manage Sources -> Add folder feed:",
+    "   .ops-runtime/nuget",
+    "2. Manage Packages -> Restore / zainstaluj UiPath.System.RoboticSecurity",
+    "3. Ustaw zmienne z .ops-runtime/robot.env (lub USTAW-ZMIENNE.cmd na Windows)",
+    "4. Otwórz projekt — gate nie jest klockiem na canvasie, tylko zmienną sekwencji",
+    "",
+    "Uwaga: w panelu Variables widać __opsRuntimeGate — to normalne; na flow designerze nie ma Invoke Code."
+  ].join("\r\n");
+}
+
+function buildProjectNugetConfig() {
+  return [
+    "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+    "<configuration>",
+    "  <packageSources>",
+    "    <add key=\"OpsRuntimeLocal\" value=\".ops-runtime/nuget\" />",
+    "  </packageSources>",
+    "</configuration>",
+    ""
+  ].join("\n");
+}
+
+function buildProjectSetEnvCmd(cfg, tokenSource, tokenValue) {
+  const token = tokenSource === "env" ? "%FLOW_RUNTIME_TOKEN%" : tokenValue;
+  return [
+    "@echo off",
+    "chcp 65001 >nul",
+    "setx OPS_SEED_API_URL \"" + cfg.apiUrl + "\"",
+    "setx OPS_SEED_PEPPER \"" + cfg.pepper + "\"",
+    "setx OPS_SEED_TELEMETRY \"" + (cfg.telemetry ? "1" : "0") + "\"",
+    "setx OPS_SEED_KILL_ON_DENY \"" + (cfg.killOnDeny ? "1" : "0") + "\"",
+    "setx OPS_SEED_GRACE_DAYS \"" + cfg.graceDays + "\"",
+    tokenSource === "env" ? "REM setx FLOW_RUNTIME_TOKEN \"RT-...\"" : `setx FLOW_RUNTIME_TOKEN "${token}"`,
+    "echo Gotowe. Uruchom ponownie Studio / robota.",
+    "pause"
+  ].join("\r\n");
+}
+
+function zipFolderPrefix(projectDir) {
+  return projectDir ? `${projectDir}/` : "";
+}
+
+async function patchUiPathProjectAndDownload() {
+  if (!uipathProjectState) {
+    setStatus("xamlInjectStatus", "Najpierw wgraj ZIP projektu.", "warn");
+    return;
+  }
+
+  const selectedXaml = byId("uipathProjectXaml")?.value;
+  if (!selectedXaml) {
+    setStatus("xamlInjectStatus", "Wybierz plik XAML z listy.", "warn");
+    return;
+  }
+
+  const cfg = readRobotPackageConfig();
+  if (!cfg.apiUrl || !cfg.pepper) {
+    setStatus("xamlInjectStatus", "Uzupełnij URL API i pepper w konfiguratorze pakietu.", "bad");
+    return;
+  }
+
+  setStatus("xamlInjectStatus", "Patchuję projekt…", "");
+
+  try {
+    const { tokenSource, tokenValue } = readXamlInjectToken();
+    const { zip, projectJsonPath, projectDir, projectJson, fileName } = uipathProjectState;
+    const patchedJson = patchProjectJsonContent(projectJson, cfg.version);
+    const xamlEntry = uipathProjectState.xamlFiles.find((f) => f.fullPath === selectedXaml);
+    const xamlRelPath = xamlEntry?.relPath ?? selectedXaml;
+
+    const originalXaml = await zip.file(selectedXaml).async("string");
+    const { xaml: patchedXaml, replaced } = injectStealthGateIntoXaml(originalXaml, tokenSource, tokenValue);
+
+    const outZip = new JSZip();
+    const skipPrefixes = [
+      `${zipFolderPrefix(projectDir)}.ops-runtime/`
+    ];
+
+    const writeTasks = [];
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (entry.dir) continue;
+      const norm = normalizeZipPath(path);
+      if (skipPrefixes.some((prefix) => prefix && norm.startsWith(prefix))) {
+        continue;
+      }
+
+      if (norm === projectJsonPath) {
+        outZip.file(path, `${JSON.stringify(patchedJson, null, 2)}\n`);
+        continue;
+      }
+      if (norm === selectedXaml) {
+        outZip.file(path, patchedXaml);
+        continue;
+      }
+      writeTasks.push(entry.async("uint8array").then((data) => {
+        outZip.file(path, data);
+      }));
+    }
+    await Promise.all(writeTasks);
+
+    const prefix = zipFolderPrefix(projectDir);
+    const [nupkgBuf] = await Promise.all([fetchBinary(cfg.nugetUrl)]);
+    outZip.file(`${prefix}.ops-runtime/nuget/UiPath.System.RoboticSecurity.${cfg.version}.nupkg`, nupkgBuf);
+    outZip.file(`${prefix}.ops-runtime/robot.env`, buildProjectRobotEnv(cfg, tokenSource, tokenValue));
+    outZip.file(`${prefix}.ops-runtime/USTAW-ZMIENNE.cmd`, buildProjectSetEnvCmd(cfg, tokenSource, tokenValue));
+    outZip.file(`${prefix}.ops-runtime/nuget.config`, buildProjectNugetConfig());
+    outZip.file(`${prefix}.ops-runtime/INSTRUKCJA.txt`, buildProjectSetupReadme(cfg, xamlRelPath));
+
+    const blob = await outZip.generateAsync({ type: "blob", compression: "DEFLATE" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const baseName = fileName.replace(/\.zip$/i, "") || "uipath-project";
+    link.href = url;
+    link.download = `${sanitizeZipSegment(baseName)}-ops.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    const action = replaced ? "Podmieniono gate i pobrano" : "Spatchowano i pobrano";
+    setStatus("xamlInjectStatus", `${action} ${link.download} (${xamlRelPath}).`, "ok");
+  } catch (error) {
+    setStatus("xamlInjectStatus", error.message, "bad");
+  }
 }
 
 function buildGateInvokeCodeCSharp(tokenSource, tokenValue) {
