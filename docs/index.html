@@ -19,6 +19,11 @@
         <input id="loginPassword" type="password" autocomplete="current-password" required>
       </label>
       <button type="submit" class="primary">Zaloguj</button>
+      <div id="oauthProviders" class="oauth-providers hidden">
+        <p class="muted oauth-divider">lub</p>
+        <button id="btnLoginGithub" type="button" class="oauth-btn">GitHub</button>
+        <button id="btnLoginGoogle" type="button" class="oauth-btn">Google</button>
+      </div>
       <p id="loginStatus" class="status"></p>
     </form>
   </div>
@@ -50,6 +55,8 @@
               <tr>
                 <th>Login</th>
                 <th>Rola</th>
+                <th>GitHub</th>
+                <th>Google</th>
                 <th>Utworzono</th>
                 <th>Akcje</th>
               </tr>
@@ -63,7 +70,13 @@
             <input id="newAccountUsername" type="text" placeholder="min. 3 znaki">
           </label>
           <label>Hasło
-            <input id="newAccountPassword" type="password" placeholder="min. 8 znaków">
+            <input id="newAccountPassword" type="password" placeholder="min. 8 znaków (opcjonalne przy OAuth)">
+          </label>
+          <label>GitHub login
+            <input id="newAccountGithub" type="text" placeholder="np. mikzielinski">
+          </label>
+          <label>Google email
+            <input id="newAccountGoogle" type="email" placeholder="email@gmail.com">
           </label>
           <label>Administrator
             <select id="newAccountIsAdmin">
@@ -216,6 +229,6 @@
     </footer>
   </div>
 
-  <script src="./app.js?v=16"></script>
+  <script src="./app.js?v=17"></script>
 </body>
 </html>

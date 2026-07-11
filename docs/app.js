@@ -25,12 +25,79 @@ async function init() {
   loadSettings();
   await ensureSealJwkFromDefaults();
   bindUi();
+  await loadOAuthProviders();
+
+  if (consumeOAuthCallbackFromHash()) {
+    await enterApp();
+    return;
+  }
 
   if (restorePanelSession()) {
     await enterApp();
   } else {
     showLoginScreen();
   }
+}
+
+function consumeOAuthCallbackFromHash() {
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!hash) return false;
+
+  const params = new URLSearchParams(hash);
+  const mode = params.get("oauth");
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+
+  if (mode === "error") {
+    const reason = params.get("reason") ?? "oauth_failed";
+    const message = reason === "no_account"
+      ? "Brak konta powiązanego z tym GitHub/Google. Poproś admina o dodanie loginu."
+      : `Logowanie OAuth nie powiodło się (${reason}).`;
+    showLoginScreen();
+    setStatus("loginStatus", message, "bad");
+    return false;
+  }
+
+  if (mode !== "success") return false;
+
+  const sessionToken = params.get("sessionToken");
+  const username = params.get("username");
+  if (!sessionToken || !username) return false;
+
+  persistPanelSession({
+    username,
+    isAdmin: params.get("isAdmin") === "1",
+    sessionToken,
+    expiresAt: params.get("expiresAt")
+  });
+  return true;
+}
+
+async function loadOAuthProviders() {
+  const container = byId("oauthProviders");
+  try {
+    const base = apiBaseUrl();
+    if (!base) {
+      container.classList.add("hidden");
+      return;
+    }
+    const resp = await fetch(`${base}/v1/panel/oauth/providers`, { headers: { Accept: "application/json" } });
+    const json = resp.ok ? await resp.json() : {};
+    const show = Boolean(json.github || json.google);
+    container.classList.toggle("hidden", !show);
+    byId("btnLoginGithub").classList.toggle("hidden", !json.github);
+    byId("btnLoginGoogle").classList.toggle("hidden", !json.google);
+  } catch {
+    container.classList.add("hidden");
+  }
+}
+
+function startOAuthLogin(provider) {
+  const base = apiBaseUrl();
+  if (!base) {
+    setStatus("loginStatus", "Brak URL API w panel.defaults.json.", "bad");
+    return;
+  }
+  window.location.href = `${base}/v1/panel/oauth/${provider}/start`;
 }
 
 async function enterApp() {
@@ -180,6 +247,8 @@ function bindUi() {
     }
   });
 
+  byId("btnLoginGithub").addEventListener("click", () => startOAuthLogin("github"));
+  byId("btnLoginGoogle").addEventListener("click", () => startOAuthLogin("google"));
   byId("btnLogout").addEventListener("click", () => logoutPanel());
   byId("btnRefreshLive").addEventListener("click", () => refreshFromLive(true));
   byId("btnPublishAll").addEventListener("click", () => publishAll());
@@ -795,6 +864,8 @@ async function refreshAccountsTable() {
       return `<tr>
         <td>${escapeHtml(account.username)}</td>
         <td>${account.isAdmin ? "Administrator" : "Operator"}</td>
+        <td>${escapeHtml(account.githubLogin ?? "—")}</td>
+        <td>${escapeHtml(account.googleEmail ?? "—")}</td>
         <td>${escapeHtml(account.createdAt ?? "")}</td>
         <td>${deleteBtn}</td>
       </tr>`;
@@ -826,16 +897,21 @@ async function createPanelAccount() {
 
   const username = byId("newAccountUsername").value.trim();
   const password = byId("newAccountPassword").value;
+  const githubLogin = byId("newAccountGithub").value.trim();
+  const googleEmail = byId("newAccountGoogle").value.trim().toLowerCase();
   const isAdmin = byId("newAccountIsAdmin").value === "1";
-  if (username.length < 3 || password.length < 8) {
-    setStatus("accountsStatus", "Login min. 3 znaki, hasło min. 8 znaków.", "warn");
+  const hasOAuth = Boolean(githubLogin || googleEmail);
+  if (username.length < 3 || (password.length < 8 && !hasOAuth)) {
+    setStatus("accountsStatus", "Login min. 3 znaki; hasło min. 8 lub podaj GitHub/Google.", "warn");
     return;
   }
 
   try {
-    await apiRequest("/v1/panel/accounts", "POST", { username, password, isAdmin });
+    await apiRequest("/v1/panel/accounts", "POST", { username, password, isAdmin, githubLogin, googleEmail });
     byId("newAccountUsername").value = "";
     byId("newAccountPassword").value = "";
+    byId("newAccountGithub").value = "";
+    byId("newAccountGoogle").value = "";
     byId("newAccountIsAdmin").value = "0";
     setStatus("accountsStatus", `Dodano konto ${username}.`, "ok");
     await refreshAccountsTable();

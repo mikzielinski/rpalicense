@@ -22,6 +22,14 @@ serverSettings.PublicSealKeyPem = FirstNonEmpty(Environment.GetEnvironmentVariab
 serverSettings.OperatorSecret = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_OPERATOR_SECRET"), serverSettings.OperatorSecret) ?? string.Empty;
 serverSettings.SessionSigningKey = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_SESSION_SIGNING_KEY"), serverSettings.SessionSigningKey) ?? string.Empty;
 
+var panelOAuthOptions = builder.Configuration.GetSection(PanelOAuthOptions.SectionName).Get<PanelOAuthOptions>() ?? new PanelOAuthOptions();
+panelOAuthOptions.PanelUrl = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_PANEL_PUBLIC_URL"), panelOAuthOptions.PanelUrl) ?? panelOAuthOptions.PanelUrl;
+panelOAuthOptions.ApiPublicUrl = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_API_PUBLIC_URL"), panelOAuthOptions.ApiPublicUrl) ?? panelOAuthOptions.ApiPublicUrl;
+panelOAuthOptions.GithubClientId = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_OAUTH_GITHUB_CLIENT_ID"), panelOAuthOptions.GithubClientId) ?? string.Empty;
+panelOAuthOptions.GithubClientSecret = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_OAUTH_GITHUB_CLIENT_SECRET"), panelOAuthOptions.GithubClientSecret) ?? string.Empty;
+panelOAuthOptions.GoogleClientId = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_OAUTH_GOOGLE_CLIENT_ID"), panelOAuthOptions.GoogleClientId) ?? string.Empty;
+panelOAuthOptions.GoogleClientSecret = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_OAUTH_GOOGLE_CLIENT_SECRET"), panelOAuthOptions.GoogleClientSecret) ?? string.Empty;
+
 var corsOptions = builder.Configuration.GetSection(CorsOptions.SectionName).Get<CorsOptions>() ?? new CorsOptions();
 var allowedOrigins = corsOptions.AllowedOrigins.Length > 0
     ? corsOptions.AllowedOrigins
@@ -29,9 +37,11 @@ var allowedOrigins = corsOptions.AllowedOrigins.Length > 0
 
 builder.Services.AddSingleton(databaseOptions);
 builder.Services.AddSingleton(serverSettings);
+builder.Services.AddSingleton(panelOAuthOptions);
 builder.Services.AddSingleton<HandshakeService>();
 builder.Services.AddSingleton<SessionTokenService>();
 builder.Services.AddSingleton<CatalogService>();
+builder.Services.AddHttpClient<PanelOAuthService>();
 
 if (string.IsNullOrWhiteSpace(databaseOptions.ConnectionString))
 {
@@ -67,9 +77,10 @@ try
     var panelAdminPassword = FirstNonEmpty(
         Environment.GetEnvironmentVariable("OPS_PANEL_ADMIN_PASSWORD"),
         serverSettings.OperatorSecret);
+    var panelAdminGithub = FirstNonEmpty(Environment.GetEnvironmentVariable("OPS_PANEL_ADMIN_GITHUB_LOGIN"));
     if (!string.IsNullOrWhiteSpace(panelAdminPassword))
     {
-        await panelUsers.EnsureBootstrapAdminAsync(panelAdminUser, panelAdminPassword).ConfigureAwait(false);
+        await panelUsers.EnsureBootstrapAdminAsync(panelAdminUser, panelAdminPassword, panelAdminGithub).ConfigureAwait(false);
     }
     else
     {
@@ -378,13 +389,7 @@ app.MapPost("/v1/panel/login", async (
     }
 
     var sessionToken = sessions.IssueOperator(user.Username, user.IsAdmin);
-    return Results.Ok(new PanelLoginResponse
-    {
-        SessionToken = sessionToken,
-        Username = user.Username,
-        IsAdmin = user.IsAdmin,
-        ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(settings.SessionTtlMinutes).ToString("O")
-    });
+    return Results.Ok(BuildPanelLogin(user, sessions, settings));
 });
 
 app.MapGet("/v1/panel/me", (HttpRequest httpRequest, SessionTokenService sessions) =>
@@ -430,9 +435,15 @@ app.MapPost("/v1/panel/accounts", async (
 
     var username = (request.Username ?? string.Empty).Trim();
     var password = request.Password ?? string.Empty;
-    if (username.Length < 3 || password.Length < 8)
+    if (username.Length < 3)
     {
-        return Results.BadRequest(new { error = "username_min_3_password_min_8" });
+        return Results.BadRequest(new { error = "username_min_3" });
+    }
+
+    var hasOAuth = !string.IsNullOrWhiteSpace(request.GithubLogin) || !string.IsNullOrWhiteSpace(request.GoogleEmail);
+    if (password.Length < 8 && !hasOAuth)
+    {
+        return Results.BadRequest(new { error = "password_min_8_or_oauth_link" });
     }
 
     if (await panelUsers.FindByUsernameAsync(username, ct).ConfigureAwait(false) is not null)
@@ -440,9 +451,111 @@ app.MapPost("/v1/panel/accounts", async (
         return Results.Conflict(new { error = "username_exists" });
     }
 
-    await panelUsers.CreateUserAsync(username, PasswordHasher.Hash(password), request.IsAdmin, ct).ConfigureAwait(false);
+    if (!string.IsNullOrWhiteSpace(request.GithubLogin) &&
+        await panelUsers.FindByGithubLoginAsync(request.GithubLogin, ct).ConfigureAwait(false) is not null)
+    {
+        return Results.Conflict(new { error = "github_login_exists" });
+    }
+
+    if (!string.IsNullOrWhiteSpace(request.GoogleEmail) &&
+        await panelUsers.FindByGoogleEmailAsync(request.GoogleEmail, ct).ConfigureAwait(false) is not null)
+    {
+        return Results.Conflict(new { error = "google_email_exists" });
+    }
+
+    var passwordHash = password.Length >= 8
+        ? PasswordHasher.Hash(password)
+        : PasswordHasher.Hash(Guid.NewGuid().ToString("N"));
+
+    await panelUsers.CreateUserAsync(new PanelUserCreateOptions
+    {
+        Username = username,
+        PasswordHash = passwordHash,
+        IsAdmin = request.IsAdmin,
+        GithubLogin = request.GithubLogin,
+        GoogleEmail = request.GoogleEmail
+    }, ct).ConfigureAwait(false);
     return Results.Ok(new { ok = true, username });
 });
+
+app.MapPatch("/v1/panel/accounts/{username}", async (
+    HttpRequest httpRequest,
+    string username,
+    PanelAccountUpdateRequest request,
+    SessionTokenService sessions,
+    IPanelUserStore panelUsers,
+    CancellationToken ct) =>
+{
+    if (!SessionAuth.RequireAdmin(httpRequest, sessions, out _))
+    {
+        return Results.Forbid();
+    }
+
+    var normalized = username.Trim();
+    if (!string.IsNullOrWhiteSpace(request.GithubLogin) &&
+        await panelUsers.FindByGithubLoginAsync(request.GithubLogin, ct).ConfigureAwait(false) is { } githubUser &&
+        !string.Equals(githubUser.Username, normalized, StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Conflict(new { error = "github_login_exists" });
+    }
+
+    if (!string.IsNullOrWhiteSpace(request.GoogleEmail) &&
+        await panelUsers.FindByGoogleEmailAsync(request.GoogleEmail, ct).ConfigureAwait(false) is { } googleUser &&
+        !string.Equals(googleUser.Username, normalized, StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Conflict(new { error = "google_email_exists" });
+    }
+
+    var updated = await panelUsers.UpdateUserLinksAsync(
+        normalized,
+        request.GithubLogin,
+        request.GoogleEmail,
+        ct).ConfigureAwait(false);
+    return updated ? Results.Ok(new { ok = true }) : Results.NotFound();
+});
+
+app.MapGet("/v1/panel/oauth/providers", (PanelOAuthService oauth) =>
+    Results.Ok(new
+    {
+        github = oauth.GithubEnabled,
+        google = oauth.GoogleEnabled
+    }));
+
+app.MapGet("/v1/panel/oauth/github/start", (PanelOAuthService oauth) =>
+{
+    if (!oauth.GithubEnabled)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Redirect(oauth.BuildGithubAuthorizeUrl());
+});
+
+app.MapGet("/v1/panel/oauth/google/start", (PanelOAuthService oauth) =>
+{
+    if (!oauth.GoogleEnabled)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Redirect(oauth.BuildGoogleAuthorizeUrl());
+});
+
+app.MapGet("/v1/panel/oauth/github/callback", async (
+    HttpRequest request,
+    PanelOAuthService oauth,
+    IPanelUserStore panelUsers,
+    SessionTokenService sessions,
+    ServerSettings settings) =>
+    await HandleOAuthCallbackAsync(request, oauth, panelUsers, sessions, settings, "github").ConfigureAwait(false));
+
+app.MapGet("/v1/panel/oauth/google/callback", async (
+    HttpRequest request,
+    PanelOAuthService oauth,
+    IPanelUserStore panelUsers,
+    SessionTokenService sessions,
+    ServerSettings settings) =>
+    await HandleOAuthCallbackAsync(request, oauth, panelUsers, sessions, settings, "google").ConfigureAwait(false));
 
 app.MapDelete("/v1/panel/accounts/{username}", async (
     HttpRequest httpRequest,
@@ -467,6 +580,68 @@ app.MapDelete("/v1/panel/accounts/{username}", async (
 });
 
 app.Run();
+
+static PanelLoginResponse BuildPanelLogin(PanelUserRecord user, SessionTokenService sessions, ServerSettings settings) =>
+    new()
+    {
+        SessionToken = sessions.IssueOperator(user.Username, user.IsAdmin),
+        Username = user.Username,
+        IsAdmin = user.IsAdmin,
+        ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(settings.SessionTtlMinutes).ToString("O")
+    };
+
+static async Task<IResult> HandleOAuthCallbackAsync(
+    HttpRequest request,
+    PanelOAuthService oauth,
+    IPanelUserStore panelUsers,
+    SessionTokenService sessions,
+    ServerSettings settings,
+    string provider)
+{
+    var state = request.Query["state"].ToString();
+    if (!oauth.TryValidateState(state, provider, out var stateError))
+    {
+        return Results.Redirect(oauth.BuildPanelErrorRedirect(stateError ?? "invalid_state"));
+    }
+
+    var code = request.Query["code"].ToString();
+    if (string.IsNullOrWhiteSpace(code))
+    {
+        return Results.Redirect(oauth.BuildPanelErrorRedirect("missing_code"));
+    }
+
+    if (string.IsNullOrWhiteSpace(settings.SessionSigningKey))
+    {
+        return Results.Redirect(oauth.BuildPanelErrorRedirect("server_misconfigured"));
+    }
+
+    OAuthIdentity? identity = provider switch
+    {
+        "github" => await oauth.ExchangeGithubAsync(code).ConfigureAwait(false),
+        "google" => await oauth.ExchangeGoogleAsync(code).ConfigureAwait(false),
+        _ => null
+    };
+
+    if (identity is null)
+    {
+        return Results.Redirect(oauth.BuildPanelErrorRedirect("oauth_exchange_failed"));
+    }
+
+    PanelUserRecord? user = provider switch
+    {
+        "github" => await panelUsers.FindByGithubLoginAsync(identity.Key).ConfigureAwait(false),
+        "google" => await panelUsers.FindByGoogleEmailAsync(identity.Key).ConfigureAwait(false),
+        _ => null
+    };
+
+    if (user is null)
+    {
+        return Results.Redirect(oauth.BuildPanelErrorRedirect("no_account"));
+    }
+
+    var login = BuildPanelLogin(user, sessions, settings);
+    return Results.Redirect(oauth.BuildPanelSuccessRedirect(login));
+}
 
 static string? FirstNonEmpty(params string?[] values)
 {

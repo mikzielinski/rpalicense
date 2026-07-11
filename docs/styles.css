@@ -68,6 +68,20 @@ body {
   font-size: 1.4rem;
 }
 
+.oauth-providers {
+  display: grid;
+  gap: 8px;
+}
+
+.oauth-divider {
+  text-align: center;
+  margin: 4px 0;
+}
+
+.oauth-btn {
+  width: 100%;
+}
+
 .user-badge {
   align-self: center;
   padding: 6px 10px;

@@ -93,12 +93,48 @@ OPS_SEED_PEPPER=...          # ten sam co na serwerze
 OPS_SEED_TELEMETRY=1
 ```
 
+## Panel — logowanie OAuth (GitHub / Google)
+
+Działa **tylko dla kont już dodanych przez admina** z powiązanym GitHub login lub Google email.
+
+### 1. OAuth Apps
+
+**GitHub** → Settings → Developer settings → OAuth App:
+- Homepage: `https://mikzielinski.github.io/rpalicense`
+- Callback: `https://rpalicense.fly.dev/v1/panel/oauth/github/callback`
+
+**Google** → Cloud Console → OAuth client (Web):
+- Authorized redirect URI: `https://rpalicense.fly.dev/v1/panel/oauth/google/callback`
+
+### 2. Sekrety na Fly
+
+```bash
+flyctl secrets set \
+  OPS_OAUTH_GITHUB_CLIENT_ID='...' \
+  OPS_OAUTH_GITHUB_CLIENT_SECRET='...' \
+  OPS_OAUTH_GOOGLE_CLIENT_ID='...' \
+  OPS_OAUTH_GOOGLE_CLIENT_SECRET='...' \
+  OPS_PANEL_PUBLIC_URL='https://mikzielinski.github.io/rpalicense' \
+  OPS_API_PUBLIC_URL='https://rpalicense.fly.dev' \
+  --app rpalicense
+```
+
+### 3. Powiązanie konta (admin)
+
+Przy tworzeniu konta podaj **GitHub login** (np. `mikzielinski`) lub **Google email**.  
+Dla istniejącego konta: `PATCH /v1/panel/accounts/{username}` z `{ "githubLogin": "..." }`.
+
 ## Zmienne środowiskowe serwera
 
 | Zmienna | Opis |
 |---------|------|
 | `DATABASE_URL` | Neon PostgreSQL (pooler, `sslmode=require`) |
-| `OPS_OPERATOR_SECRET` | Sekret operatora (panel) |
+| `OPS_PANEL_ADMIN_PASSWORD` | Hasło pierwszego admina (`mikolaj`) |
+| `OPS_PANEL_ADMIN_GITHUB_LOGIN` | Opcjonalny GitHub login admina (OAuth) |
+| `OPS_OAUTH_GITHUB_CLIENT_ID` / `SECRET` | OAuth GitHub panelu |
+| `OPS_OAUTH_GOOGLE_CLIENT_ID` / `SECRET` | OAuth Google panelu |
+| `OPS_PANEL_PUBLIC_URL` | URL panelu (GitHub Pages) |
+| `OPS_API_PUBLIC_URL` | Publiczny URL API (Fly) |
 | `OPS_SESSION_SIGNING_KEY` | Klucz podpisu sesji HMAC |
 | `OPS_SEED_PEPPER` | Pepper runtime (musi zgadzać się z robotami) |
 | `OPS_SEED_ENVELOPE_*` | Klucze koperty JWT katalogu |

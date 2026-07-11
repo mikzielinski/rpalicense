@@ -118,6 +118,21 @@ public sealed class PanelAccountCreateRequest
 
     [JsonPropertyName("isAdmin")]
     public bool IsAdmin { get; set; }
+
+    [JsonPropertyName("githubLogin")]
+    public string? GithubLogin { get; set; }
+
+    [JsonPropertyName("googleEmail")]
+    public string? GoogleEmail { get; set; }
+}
+
+public sealed class PanelAccountUpdateRequest
+{
+    [JsonPropertyName("githubLogin")]
+    public string? GithubLogin { get; set; }
+
+    [JsonPropertyName("googleEmail")]
+    public string? GoogleEmail { get; set; }
 }
 
 public sealed class PanelAccountsResponse
