@@ -1,6 +1,6 @@
 {
   "seedUrl": "https://mikzielinski.github.io/rpalicense/assets/seed.jwt",
-  "apiBaseUrl": "https://rpalicense-api.fly.dev",
+  "apiBaseUrl": "https://rpalicense.fly.dev",
   "ghOwner": "mikzielinski",
   "ghRepo": "rpalicense",
   "ghBranch": "main",

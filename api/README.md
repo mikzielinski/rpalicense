@@ -8,7 +8,7 @@ Dane operacyjne (katalog, audit, telemetria) są w **Neon PostgreSQL** — bez P
 | Warstwa | Usługa |
 |---------|--------|
 | Panel WWW | GitHub Pages (`mikzielinski.github.io/rpalicense`) |
-| API | Fly.io (`rpalicense-api.fly.dev`) — zamiast Render |
+| API | Fly.io (`rpalicense.fly.dev`) — zamiast Render |
 | Baza | Neon PostgreSQL (`DATABASE_URL`) |
 
 ## Uruchomienie lokalne
@@ -45,7 +45,7 @@ export OPS_SESSION_SIGNING_KEY='...'
 ./scripts/fly-deploy.sh
 ```
 
-Po deploy API: `https://rpalicense-api.fly.dev`
+Po deploy API: `https://rpalicense.fly.dev`
 
 W panelu (GitHub Pages) ustaw **URL API** na ten adres i **Sekret operatora** (`OPS_OPERATOR_SECRET`).
 
@@ -88,7 +88,7 @@ docker run -p 8080:8080 \
 ## Robot (UiPath)
 
 ```
-OPS_SEED_API_URL=https://rpalicense-api.fly.dev
+OPS_SEED_API_URL=https://rpalicense.fly.dev
 OPS_SEED_PEPPER=...          # ten sam co na serwerze
 OPS_SEED_TELEMETRY=1
 ```

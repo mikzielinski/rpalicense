@@ -26,8 +26,8 @@ flyctl apps list >/dev/null 2>&1 || {
   exit 1
 }
 
-if ! flyctl apps list 2>/dev/null | grep -q '^rpalicense-api'; then
-  flyctl launch --config fly.toml --copy-config --no-deploy --name rpalicense-api --region fra --yes
+if ! flyctl apps list 2>/dev/null | grep -q '^rpalicense'; then
+  flyctl launch --config fly.toml --copy-config --no-deploy --name rpalicense --region ams --yes
 fi
 
 flyctl secrets set \
@@ -43,4 +43,4 @@ flyctl secrets set \
 
 flyctl deploy --config fly.toml
 
-echo "API URL: https://rpalicense-api.fly.dev"
+echo "API URL: https://rpalicense.fly.dev"
