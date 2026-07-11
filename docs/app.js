@@ -123,9 +123,15 @@ function showAppShell() {
   byId("loginScreen").classList.add("hidden");
   byId("appShell").classList.remove("hidden");
   const user = state.panelUser;
-  byId("headerUser").textContent = user
-    ? `${user.username}${user.isAdmin ? " (admin)" : ""}`
-    : "";
+  const headerUser = byId("headerUser");
+  if (user) {
+    const initials = user.username.slice(0, 2).toUpperCase();
+    headerUser.className = `user-badge${user.isAdmin ? " admin" : ""}`;
+    headerUser.innerHTML = `<span class="user-avatar" aria-hidden="true">${escapeHtml(initials)}</span><span>${escapeHtml(user.username)}${user.isAdmin ? " · admin" : ""}</span>`;
+  } else {
+    headerUser.className = "user-badge muted";
+    headerUser.textContent = "";
+  }
   byId("accountsCard").classList.toggle("hidden", !user?.isAdmin);
 }
 
@@ -859,17 +865,19 @@ async function refreshAccountsTable() {
     const body = byId("accountsTableBody");
     body.innerHTML = accounts.map((account) => {
       const isSelf = account.username === state.panelUser.username;
+      const roleCls = account.isAdmin ? "admin" : "operator";
+      const roleLabel = account.isAdmin ? "Administrator" : "Operator";
       const deleteBtn = isSelf
         ? ""
-        : `<button type="button" class="small" data-delete-account="${escapeHtml(account.username)}">Usuń</button>`;
-      const linkBtn = `<button type="button" class="small" data-link-account="${escapeHtml(account.username)}" data-github="${escapeHtml(account.githubLogin ?? "")}" data-google="${escapeHtml(account.googleEmail ?? "")}">Powiąż OAuth</button>`;
+        : `<button type="button" class="btn-sm btn-danger" data-delete-account="${escapeHtml(account.username)}">Usuń</button>`;
+      const linkBtn = `<button type="button" class="btn-sm btn-ghost" data-link-account="${escapeHtml(account.username)}" data-github="${escapeHtml(account.githubLogin ?? "")}" data-google="${escapeHtml(account.googleEmail ?? "")}">Powiąż OAuth</button>`;
       return `<tr>
-        <td>${escapeHtml(account.username)}</td>
-        <td>${account.isAdmin ? "Administrator" : "Operator"}</td>
-        <td>${escapeHtml(account.githubLogin ?? "—")}</td>
-        <td>${escapeHtml(account.googleEmail ?? "—")}</td>
-        <td>${escapeHtml(account.createdAt ?? "")}</td>
-        <td>${linkBtn} ${deleteBtn}</td>
+        <td><strong>${escapeHtml(account.username)}</strong></td>
+        <td><span class="role-pill ${roleCls}">${roleLabel}</span></td>
+        <td>${account.githubLogin ? `<code>${escapeHtml(account.githubLogin)}</code>` : '<span class="muted">—</span>'}</td>
+        <td>${account.googleEmail ? escapeHtml(account.googleEmail) : '<span class="muted">—</span>'}</td>
+        <td class="muted">${escapeHtml(account.createdAt ?? "")}</td>
+        <td class="cell-actions">${linkBtn} ${deleteBtn}</td>
       </tr>`;
     }).join("");
 
@@ -1507,7 +1515,7 @@ function renderLicenseTable() {
     tr.innerHTML = `
       <td><code>${escapeHtml(e.tokenId)}</code></td>
       <td>${escapeHtml(e.owner ?? "-")}</td>
-      <td>${escapeHtml(e.validToUtc ?? "-")}</td>
+      <td class="muted">${escapeHtml(e.validToUtc ?? "-")}</td>
       <td><span class="pill ${st.cls}">${st.label}</span></td>
       <td class="row-actions"></td>
     `;
@@ -1528,7 +1536,7 @@ function renderLicenseTable() {
 function actionBtn(label, onClick) {
   const b = document.createElement("button");
   b.type = "button";
-  b.className = "small";
+  b.className = label === "Usuń" ? "btn-sm btn-danger" : "btn-sm btn-ghost";
   b.textContent = label;
   b.addEventListener("click", onClick);
   return b;
