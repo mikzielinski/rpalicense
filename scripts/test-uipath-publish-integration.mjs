@@ -11,12 +11,39 @@ import {
   writeFileSync
 } from "node:fs";
 import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
 import { patchUiPathProjectZip, repoRoot, zipFolderPrefix } from "./lib/patch-uipath-project-zip.mjs";
 
 const sampleZipPath = join(repoRoot, "docs/assets/sample-uipath-project.zip");
+
+function probeTargetFramework() {
+  try {
+    const runtimes = execSync("dotnet --list-runtimes", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    if (/Microsoft\.NETCore\.App 8\./.test(runtimes)) return "net8.0";
+    if (/Microsoft\.NETCore\.App 6\./.test(runtimes)) return "net6.0";
+  } catch {
+    // dotnet missing — caller tests will fail with a clear error
+  }
+  return "net8.0";
+}
+
+const probeTfm = probeTargetFramework();
+
+function resolveUiPathStudioCmd() {
+  if (process.env.UIPATH_STUDIO_CMD) return process.env.UIPATH_STUDIO_CMD;
+  const programFiles = process.env["ProgramFiles"] ?? "C:\\Program Files";
+  const programFilesX86 = process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
+  const localAppData = process.env.LOCALAPPDATA ?? "";
+  const candidates = [
+    join(programFiles, "UiPath", "Studio", "UiPath.Studio.CommandLine.exe"),
+    join(programFilesX86, "UiPath", "Studio", "UiPath.Studio.CommandLine.exe"),
+    localAppData ? join(localAppData, "Programs", "UiPath", "Studio", "UiPath.Studio.CommandLine.exe") : null
+  ].filter(Boolean);
+  return candidates.find((path) => existsSync(path)) ?? candidates[0];
+}
 
 let passed = 0;
 let failed = 0;
@@ -94,7 +121,7 @@ internal static class Program
 const PACK_PROBE_CSPROJ = `<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>${probeTfm}</TargetFramework>
     <IsPackable>true</IsPackable>
     <PackageId>OpsRuntime.ProcessPackProbe</PackageId>
     <Version>1.0.0</Version>
@@ -156,7 +183,7 @@ await run("gate DLL exposes Bootstrapper.TryInitialize (runtime probe)", async (
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>${probeTfm}</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
   </PropertyGroup>
@@ -184,18 +211,21 @@ await run("patched Main.xaml has embedded gate + assembly reference", async () =
   assert(!xaml.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "no redundant ns import");
 });
 
-const uipathCli = process.env.UIPATH_STUDIO_CMD
-  ?? "C:\\Program Files\\UiPath\\Studio\\UiPath.Studio.CommandLine.exe";
+const uipathCli = resolveUiPathStudioCmd();
 
 await run("UiPath Studio CommandLine publish (Windows only — skipped on Linux CI)", async () => {
   if (process.platform !== "win32") {
     console.log("       (skip: no Windows / UiPath Studio in this environment)");
     return;
   }
+  if (!existsSync(uipathCli)) {
+    console.log(`       (skip: UiPath.Studio.CommandLine.exe not found at ${uipathCli})`);
+    return;
+  }
   try {
     execSync(`"${uipathCli}" --help`, { stdio: "pipe" });
   } catch {
-    console.log("       (skip: UiPath.Studio.CommandLine.exe not installed)");
+    console.log(`       (skip: UiPath.Studio.CommandLine.exe not runnable at ${uipathCli})`);
     return;
   }
 
