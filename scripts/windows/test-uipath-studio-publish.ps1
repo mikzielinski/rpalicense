@@ -18,7 +18,9 @@ $StudioCmd = $env:UIPATH_STUDIO_CMD
 if (-not $StudioCmd) {
     $candidates = @(
         "${env:ProgramFiles}\UiPath\Studio\UiPath.Studio.CommandLine.exe",
+        "${env:ProgramFiles}\UiPath\Studio\Legacy\UiPath.Studio.CommandLine.exe",
         "${env:ProgramFiles(x86)}\UiPath\Studio\UiPath.Studio.CommandLine.exe",
+        "${env:ProgramFiles(x86)}\UiPath\Studio\Legacy\UiPath.Studio.CommandLine.exe",
         "${env:LocalAppData}\Programs\UiPath\Studio\UiPath.Studio.CommandLine.exe"
     )
     $StudioCmd = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -103,5 +105,17 @@ console.log('extracted to', root, 'projectDir=', projectDir);
     Write-Host "All Windows UiPath publish checks passed."
 } finally {
     Pop-Location
-    if ($work -and (Test-Path $work)) { Remove-Item -Recurse -Force $work }
+    if ($work -and (Test-Path $work)) {
+        for ($i = 0; $i -lt 5; $i++) {
+            try {
+                Start-Sleep -Seconds 1
+                Remove-Item -Recurse -Force $work -ErrorAction Stop
+                break
+            } catch {
+                if ($i -eq 4) {
+                    Write-Warning "Could not remove temp dir $work : $_"
+                }
+            }
+        }
+    }
 }

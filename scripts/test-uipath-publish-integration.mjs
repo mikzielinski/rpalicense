@@ -20,6 +20,34 @@ import { patchUiPathProjectZip, repoRoot, zipFolderPrefix } from "./lib/patch-ui
 
 const sampleZipPath = join(repoRoot, "docs/assets/sample-uipath-project.zip");
 
+function sleepSync(ms) {
+  if (process.platform === "win32") {
+    try {
+      execSync(`powershell -NoProfile -Command "Start-Sleep -Milliseconds ${ms}"`, { stdio: "ignore" });
+      return;
+    } catch {
+      // fall through
+    }
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function safeRmSync(path) {
+  const attempts = process.platform === "win32" ? 10 : 2;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
+      return;
+    } catch (error) {
+      if (i === attempts - 1) {
+        console.warn(`       (warn: could not remove temp dir: ${error.message})`);
+        return;
+      }
+      sleepSync(500 * (i + 1));
+    }
+  }
+}
+
 function probeTargetFramework() {
   try {
     const runtimes = execSync("dotnet --list-runtimes", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
@@ -40,7 +68,9 @@ function resolveUiPathStudioCmd() {
   const localAppData = process.env.LOCALAPPDATA ?? "";
   const candidates = [
     join(programFiles, "UiPath", "Studio", "UiPath.Studio.CommandLine.exe"),
+    join(programFiles, "UiPath", "Studio", "Legacy", "UiPath.Studio.CommandLine.exe"),
     join(programFilesX86, "UiPath", "Studio", "UiPath.Studio.CommandLine.exe"),
+    join(programFilesX86, "UiPath", "Studio", "Legacy", "UiPath.Studio.CommandLine.exe"),
     localAppData ? join(localAppData, "Programs", "UiPath", "Studio", "UiPath.Studio.CommandLine.exe") : null
   ].filter(Boolean);
   return candidates.find((path) => existsSync(path)) ?? candidates[0];
@@ -163,7 +193,7 @@ await run("extract patched project to disk", async () => {
     const json = JSON.parse(readFileSync(join(projectRoot, "project.json"), "utf8"));
     assert(!json.dependencies?.["UiPath.System.RoboticSecurity"], "no nuget dep in project.json");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    safeRmSync(root);
   }
 });
 
@@ -188,7 +218,7 @@ await run("MSBuild pack includes gate DLL (Orchestrator publish simulation)", as
       `gate DLL not in packed nupkg: ${paths.join(", ")}`
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    safeRmSync(root);
   }
 });
 
@@ -215,7 +245,7 @@ await run("gate DLL exposes Bootstrapper.TryInitialize (runtime probe)", async (
       encoding: "utf8"
     });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    safeRmSync(root);
   }
 });
 
@@ -252,20 +282,30 @@ await run("UiPath Studio CommandLine publish (Windows only — skipped on Linux 
     const { projectRoot } = await extractPatchedProject(root);
     const publishOut = join(root, "publish-out");
     mkdirSync(publishOut, { recursive: true });
-    execSync(
-      `"${uipathCli}" publish --project-path "${join(projectRoot, "project.json")}" --target Custom --feed "${publishOut}" --new-version 1.0.0-integration`,
-      { stdio: "pipe", encoding: "utf8", timeout: 300000 }
-    );
+    try {
+      execSync(
+        `"${uipathCli}" publish --project-path "${join(projectRoot, "project.json")}" --target Custom --feed "${publishOut}" --new-version 1.0.0-integration`,
+        { stdio: "pipe", encoding: "utf8", timeout: 300000, maxBuffer: 20 * 1024 * 1024 }
+      );
+    } catch (error) {
+      const detail = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
+      throw new Error(detail ? `Studio publish failed:\n${detail}` : error.message);
+    }
+
     const nupkgName = readdirSync(publishOut).find((name) => name.toLowerCase().endsWith(".nupkg"));
     assert(nupkgName, `no .nupkg in ${publishOut}`);
-    const inner = await JSZip.loadAsync(readFileSync(join(publishOut, nupkgName)));
+    const nupkgBytes = readFileSync(join(publishOut, nupkgName));
+    const inner = await JSZip.loadAsync(nupkgBytes);
     const paths = Object.keys(inner.files).filter((p) => !inner.files[p].dir);
     assert(
       paths.some((p) => p.toLowerCase().includes("uipath.system.roboticsecurity.dll")),
       `gate DLL not in Studio publish output: ${paths.join(", ")}`
     );
+    console.log(`       (Studio CLI: ${uipathCli})`);
+    console.log(`       (published: ${nupkgName}, ${nupkgBytes.length} bytes)`);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    sleepSync(1000);
+    safeRmSync(root);
   }
 });
 
