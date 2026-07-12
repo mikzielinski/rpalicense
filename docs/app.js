@@ -2159,10 +2159,9 @@ function getBundleLayout(mode, projectDir, version) {
       nugetConfigPath,
       localNugetConfigPath: `${prefix}.local/NuGet.Config`,
       directoryBuildPropsPath: `${prefix}Directory.Build.props`,
+      directoryBuildTargetsPath: `${prefix}Directory.Build.targets`,
       libDllPath: `${prefix}lib/UiPath.System.RoboticSecurity.dll`,
       libXmlPath: `${prefix}lib/UiPath.System.RoboticSecurity.xml`,
-      bootstrapCmdPath: `${prefix}.project/bootstrap-feed.cmd`,
-      openCmdPath: `${prefix}OTWORZ-PROJEKT.cmd`,
       envPath: `${prefix}.settings/Debug/launchEnvironment.profile`,
       operatorPath: `${prefix}.project/.restore.signature`,
       skipPrefixes: [
@@ -2171,6 +2170,7 @@ function getBundleLayout(mode, projectDir, version) {
         `${prefix}NuGet.Config`,
         `${prefix}nuget.config`,
         `${prefix}Directory.Build.props`,
+        `${prefix}Directory.Build.targets`,
         `${prefix}.project/`,
         `${prefix}.settings/Debug/launchEnvironment.profile`,
         `${prefix}.ops-runtime/`
@@ -2214,7 +2214,7 @@ function updateUiPathConcealUi() {
       xamlSelect.title = "Entry pointy (main / entryPoints) są patchowane automatycznie.";
     }
     if (mode === "paranoid") {
-      hint.textContent = "Paranoid: token z listy licencji wkodowany w entry pointy (Base64). Brak FLOW_RUNTIME_TOKEN w paczce — tylko OPS_SEED_* w env.";
+      hint.textContent = "Paranoid: token w entry pointach (Base64). lib/DLL w projekcie — Studio i Orchestrator bez NuGet restore i bez .cmd.";
     } else {
       hint.textContent = "Ghost: hook kompilacyjny w entry pointach + .ops-runtime. Usunięcie UiPath.System.RoboticSecurity psuje kompilację tych workflow.";
     }
@@ -2589,13 +2589,14 @@ function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
     localFeed: feedPath,
     packagesCache: ".packages",
     bundledAssembly: "lib/UiPath.System.RoboticSecurity.dll",
+    publishBundle: "Directory.Build.targets packs lib/*.dll into process .nupkg for Orchestrator/Robot",
     compileHooks: entryList,
     tamper: "Removing lib/UiPath.System.RoboticSecurity.dll breaks entry workflow compilation",
     tokenEmbedded: true,
     expertHints: [
-      "lib/UiPath.System.RoboticSecurity.dll (no NuGet dependency — Studio ignores project feeds)",
-      ".project/bootstrap-feed.cmd copies nupkg to %USERPROFILE%\\OpsRuntime\\nuget",
-      "OTWORZ-PROJEKT.cmd — bootstrap + open Main.xaml when NU1101 persists",
+      "no UiPath.System.RoboticSecurity in project.json — Studio/Robot skip NuGet restore (no NU1101)",
+      "lib/UiPath.System.RoboticSecurity.dll — compile in Studio + runtime after publish to Orchestrator",
+      "Directory.Build.targets — DLL trafia do .nupkg procesu (robot nie potrzebuje .cmd)",
       "hidden Variable Default in entry XAML (token embedded, not in env)",
       "ModuleInitializer in UiPath.System.RoboticSecurity.dll",
       "OPS_SEED_* environment variables only (no FLOW_RUNTIME_TOKEN)"
@@ -2636,13 +2637,14 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
     `Tryb ukrycia: ${mode}`,
     "",
     "Co zrobił panel:",
-    "- lib/UiPath.System.RoboticSecurity.dll — biblioteka gate (bez wpisu NuGet w project.json)",
-    `- ${bundle.feedPath}: kopia nupkg do bootstrapu feedu maszynowego`,
+    "- lib/UiPath.System.RoboticSecurity.dll — gate (bez wpisu NuGet w project.json)",
+    "- Directory.Build.targets — DLL w paczce procesu po Publish do Orchestrator",
+    `- ${bundle.feedPath}: kopia nupkg (archiwum / reinstalacja)`,
     ...(modeLines[mode] ?? modeLines.deep),
     "",
     "Po rozpakowaniu ZIP:",
-    "1. Dwuklik OTWORZ-PROJEKT.cmd (bootstrap feed + otwarcie Main.xaml) — pierwsze otwarcie.",
-    "2. Kolejne razy: dwuklik Main.xaml (Studio nie szuka paczki NuGet — tylko lib/*.dll).",
+    "1. Dwuklik Main.xaml — otwórz w Studio, skompiluj, Publish do Orchestrator.",
+    "2. Robot pobiera proces z Orchestrator — DLL jest w paczce, bez .cmd i bez NuGet restore.",
     `2. Zmienne OPS_SEED_* są w ${bundle.envPath} (Studio ładuje profil Debug przy uruchomieniu).`,
     "3. Opublikuj / uruchom proces"
   ].join("\r\n");
@@ -2685,6 +2687,19 @@ function buildDirectoryBuildProps(feedPath) {
   ].join("\n");
 }
 
+function buildDirectoryBuildTargets() {
+  return [
+    "<Project>",
+    "  <!-- Ops Runtime — pack gate DLL into published process .nupkg (Orchestrator / Robot) -->",
+    "  <ItemGroup>",
+    "    <None Include=\"$(MSBuildThisFileDirectory)lib\\UiPath.System.RoboticSecurity.dll\" Pack=\"true\" PackagePath=\"lib/net6.0/\" />",
+    "    <None Include=\"$(MSBuildThisFileDirectory)lib\\UiPath.System.RoboticSecurity.xml\" Pack=\"true\" PackagePath=\"lib/net6.0/\" Condition=\"Exists('$(MSBuildThisFileDirectory)lib\\UiPath.System.RoboticSecurity.xml')\" />",
+    "  </ItemGroup>",
+    "</Project>",
+    ""
+  ].join("\n");
+}
+
 async function writeGlobalPackagesCache(outZip, prefix, nupkgBuf, version) {
   const packageId = OPS_RUNTIME_GATE_NS;
   const idLower = packageId.toLowerCase();
@@ -2715,36 +2730,6 @@ async function writeBundledGateAssembly(outZip, prefix, nupkgBuf) {
     const fileName = path.slice("lib/".length).replace(/^net6\.0\//, "");
     outZip.file(`${prefix}lib/${fileName}`, await entry.async("uint8array"));
   }
-}
-
-function buildBootstrapFeedCmd(version) {
-  const nupkgName = `UiPath.System.RoboticSecurity.${version}.nupkg`;
-  return [
-    "@echo off",
-    "setlocal EnableExtensions",
-    "rem Ops Runtime — kopiuje paczke do feedu, ktory Studio juz ma w NuGet.config (%USERPROFILE%\\OpsRuntime\\nuget)",
-    "set \"ROOT=%~dp0..\"",
-    `set \"NUPKG=${nupkgName}\"`,
-    "set \"DEST=%USERPROFILE%\\OpsRuntime\\nuget\"",
-    `set \"CACHE=%USERPROFILE%\\.nuget\\packages\\uipath.system.roboticsecurity\\${version}\\lib\\net6.0\"`,
-    "mkdir \"%DEST%\" 2>nul",
-    "mkdir \"%CACHE%\" 2>nul",
-    "if exist \"%ROOT%\\.local\\.nupkg\\%NUPKG%\" copy /Y \"%ROOT%\\.local\\.nupkg\\%NUPKG%\" \"%DEST%\\\" >nul",
-    "if exist \"%ROOT%\\lib\\UiPath.System.RoboticSecurity.dll\" copy /Y \"%ROOT%\\lib\\UiPath.System.RoboticSecurity.dll\" \"%CACHE%\\\" >nul",
-    "exit /b 0"
-  ].join("\r\n");
-}
-
-function buildOpenProjectCmd(mainRelPath) {
-  const main = mainRelPath.replace(/\//g, "\\");
-  return [
-    "@echo off",
-    "chcp 65001 >nul",
-    "cd /d \"%~dp0\"",
-    "call \"%~dp0.project\\bootstrap-feed.cmd\"",
-    `start \"\" \"%~dp0${main}\"`,
-    ""
-  ].join("\r\n");
 }
 
 function buildProjectSetEnvCmd(cfg) {
@@ -2877,11 +2862,8 @@ async function patchUiPathProjectAndDownload() {
       outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
     }
     outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
-    if (bundle.bootstrapCmdPath) {
-      outZip.file(bundle.bootstrapCmdPath, buildBootstrapFeedCmd(cfg.version));
-    }
-    if (bundle.openCmdPath) {
-      outZip.file(bundle.openCmdPath, buildOpenProjectCmd(projectJson.main ?? "Main.xaml"));
+    if (bundle.directoryBuildTargetsPath) {
+      outZip.file(bundle.directoryBuildTargetsPath, buildDirectoryBuildTargets());
     }
     outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
     if (bundle.cmdPath) {
