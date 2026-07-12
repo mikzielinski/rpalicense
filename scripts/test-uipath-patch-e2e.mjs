@@ -5,138 +5,18 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import JSZip from "jszip";
-import { loadUiPathPatchRuntime, repoRoot } from "./lib/uipath-patch-loader.mjs";
-
-const rt = loadUiPathPatchRuntime();
-const {
-  normalizeZipPath,
-  findProjectJsonPath,
-  projectDirFromJsonPath,
-  listProjectXamlFiles,
-  getEntryPointXamlFiles,
-  isGhostLikeMode,
-  removeExistingOpsRuntimeGate,
-  removeExistingHiddenGates,
-  injectTamperResistantGate,
-  patchProjectJsonContent,
-  getBundleLayout,
-  buildProjectRobotEnv,
-  buildProjectNugetConfig,
-  buildLocalNugetConfig,
-  buildDirectoryBuildProps,
-  buildDirectoryBuildTargets,
-  buildProjectSetupReadme,
-  writeGlobalPackagesCache,
-  writeBundledGateAssembly,
-  zipFolderPrefix
-} = rt;
+import { repoRoot } from "./lib/uipath-patch-loader.mjs";
+import { defaultPatchCfg, patchUiPathProjectZip } from "./lib/patch-uipath-project-zip.mjs";
 
 const NS_BLOCK_RE = /<TextExpression\.NamespacesForImplementation>/g;
 const defaults = JSON.parse(readFileSync(join(repoRoot, "docs/panel.defaults.json"), "utf8"));
 const sampleZipPath = join(repoRoot, "docs/assets/sample-uipath-project.zip");
 const nupkgPath = join(repoRoot, defaults.nugetPackageUrl.replace(/^\.\//, "docs/"));
 
-const cfg = {
-  apiUrl: defaults.apiBaseUrl,
-  pepper: defaults.pepper,
-  nugetUrl: defaults.nugetPackageUrl,
-  version: defaults.nugetVersion,
-  graceDays: defaults.robotPackage?.graceDays ?? 7,
-  telemetry: defaults.robotPackage?.telemetry !== false,
-  killOnDeny: defaults.robotPackage?.killOnDeny !== false
-};
+const cfg = defaultPatchCfg;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
-}
-
-async function readLocalBinary(url) {
-  const rel = url.replace(/^\.\//, "");
-  return readFileSync(join(repoRoot, "docs", rel));
-}
-
-async function patchUiPathProjectZip(zipBuffer, { mode, tokenValue }) {
-  const zip = await JSZip.loadAsync(zipBuffer);
-  const paths = Object.keys(zip.files).filter((p) => !zip.files[p].dir).map(normalizeZipPath);
-  const projectJsonPath = findProjectJsonPath(paths);
-  assert(projectJsonPath, "missing project.json");
-
-  const projectDir = projectDirFromJsonPath(projectJsonPath);
-  const projectJson = JSON.parse(await zip.file(projectJsonPath).async("string"));
-  const xamlFiles = listProjectXamlFiles(paths, projectDir);
-  assert(xamlFiles.length > 0, "missing xaml files");
-
-  const patchedJson = patchProjectJsonContent(projectJson, cfg.version, {
-    omitNugetDependency: mode === "paranoid"
-  });
-  const entryFiles = getEntryPointXamlFiles(xamlFiles, projectJson);
-  const bundle = getBundleLayout(mode, projectDir, cfg.version);
-  const projectSeed = projectJson.name ?? projectDir ?? "sample";
-  const xamlRelPath = entryFiles.map((f) => f.relPath).join(", ");
-  const modifiedXaml = new Map();
-
-  if (isGhostLikeMode(mode)) {
-    const entryPathSet = new Set(entryFiles.map((f) => f.fullPath));
-    for (const { fullPath, relPath } of xamlFiles) {
-      let content = await zip.file(fullPath).async("string");
-      content = removeExistingOpsRuntimeGate(content);
-      content = removeExistingHiddenGates(content);
-      if (entryPathSet.has(fullPath)) {
-        content = injectTamperResistantGate(content, tokenValue, `${projectSeed}:${relPath}`, mode).xaml;
-      }
-      modifiedXaml.set(normalizeZipPath(fullPath), content);
-    }
-  } else {
-    throw new Error(`E2E supports ghost/paranoid only (got ${mode})`);
-  }
-
-  const outZip = new JSZip();
-  const skipPrefixes = bundle.skipPrefixes;
-  const writeTasks = [];
-
-  for (const [path, entry] of Object.entries(zip.files)) {
-    if (entry.dir) continue;
-    const norm = normalizeZipPath(path);
-    if (skipPrefixes.some((prefix) => prefix && norm.startsWith(prefix))) continue;
-
-    if (norm === projectJsonPath) {
-      outZip.file(path, `${JSON.stringify(patchedJson, null, 2)}\n`);
-      continue;
-    }
-    if (modifiedXaml.has(norm)) {
-      outZip.file(path, modifiedXaml.get(norm));
-      continue;
-    }
-    writeTasks.push(entry.async("uint8array").then((data) => outZip.file(path, data)));
-  }
-  await Promise.all(writeTasks);
-
-  const prefix = zipFolderPrefix(projectDir);
-  const nupkgBuf = await readLocalBinary(cfg.nugetUrl);
-  const paranoid = mode === "paranoid";
-  outZip.file(bundle.nupkgPath, nupkgBuf);
-  if (bundle.nupkgFlatPath) outZip.file(bundle.nupkgFlatPath, nupkgBuf);
-  await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
-  await writeBundledGateAssembly(outZip, prefix, nupkgBuf);
-  outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
-  outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
-  if (bundle.localNugetConfigPath) {
-    outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
-  }
-  outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
-  if (bundle.directoryBuildTargetsPath) {
-    outZip.file(bundle.directoryBuildTargetsPath, buildDirectoryBuildTargets());
-  }
-  outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
-
-  return {
-    buffer: await outZip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }),
-    projectJsonPath,
-    projectDir,
-    bundle,
-    entryFiles,
-    projectJsonBefore: projectJson
-  };
 }
 
 let passed = 0;
@@ -167,23 +47,20 @@ await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
   assert(buffer.length > input.length, "output should be larger than input");
 
   const out = await JSZip.loadAsync(buffer);
-  const outPaths = Object.keys(out.files).filter((p) => !out.files[p].dir).map(normalizeZipPath);
-  const prefix = zipFolderPrefix(projectDir);
-  const pkgCache = `${prefix}.packages/uipath.system.roboticsecurity/${cfg.version}`;
+  const outPaths = Object.keys(out.files).filter((p) => !out.files[p].dir);
+  const prefix = projectDir ? `${projectDir}/` : "";
+  const archiveNupkg = `${prefix}.project/UiPath.System.RoboticSecurity.${cfg.version}.nupkg`;
 
   assert(outPaths.includes(projectJsonPath), "project.json missing");
-  assert(outPaths.includes(`${prefix}NuGet.Config`), "NuGet.Config missing at project root");
-  assert(outPaths.includes(`${prefix}.local/NuGet.Config`), ".local/NuGet.Config missing");
-  assert(outPaths.includes(`${prefix}Directory.Build.props`), "Directory.Build.props missing");
   assert(outPaths.includes(`${prefix}lib/UiPath.System.RoboticSecurity.dll`), "bundled gate DLL missing");
   assert(outPaths.includes(`${prefix}Directory.Build.targets`), "Directory.Build.targets missing");
+  assert(outPaths.includes(archiveNupkg), `archive nupkg missing: ${archiveNupkg}`);
+  assert(!outPaths.includes(`${prefix}NuGet.Config`), "paranoid must not ship NuGet.Config");
+  assert(!outPaths.includes(`${prefix}Directory.Build.props`), "paranoid must not ship Directory.Build.props");
+  assert(!outPaths.some((p) => p.includes(".packages/")), "paranoid must not ship .packages cache");
+  assert(!outPaths.some((p) => p.includes(".local/")), "paranoid must not ship .local nuget feed");
   assert(!outPaths.includes(`${prefix}OTWORZ-PROJEKT.cmd`), "must not require OTWORZ-PROJEKT.cmd");
   assert(!outPaths.some((p) => p.includes("bootstrap-feed.cmd")), "must not require bootstrap-feed.cmd");
-  assert(outPaths.includes(`${pkgCache}/lib/net6.0/UiPath.System.RoboticSecurity.dll`), "missing pre-cached dll");
-  assert(outPaths.includes(`${pkgCache}/uipath.system.roboticsecurity.${cfg.version}.nupkg`), "missing cached nupkg");
-  assert(!outPaths.some((p) => p.includes("/_rels/")), "must not extract nupkg _rels into cache");
-  assert(!outPaths.some((p) => p.includes("[Content_Types]")), "must not extract nupkg metadata into cache");
-  assert(outPaths.includes(bundle.nupkgFlatPath), `missing flat nupkg: ${bundle.nupkgFlatPath}`);
   assert(!outPaths.some((p) => p.endsWith("USTAW-FEED-NUGET.cmd")), "manual feed cmd must not exist");
 
   const projectJson = JSON.parse(await out.file(projectJsonPath).async("string"));
@@ -193,29 +70,18 @@ await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
     "paranoid must not add NuGet dependency — Studio ignores project feeds"
   );
 
-  const nugetXml = await out.file(`${prefix}NuGet.Config`).async("string");
-  assert(nugetXml.includes("<clear />"), "NuGet.Config must clear inherited feeds");
-  assert(nugetXml.includes('globalPackagesFolder" value=".packages"'), "nuget globalPackagesFolder");
-  assert(nugetXml.includes(".local/.nupkg"), "nuget local feed");
+  const dll = await out.file(`${prefix}lib/UiPath.System.RoboticSecurity.dll`).async("nodebuffer");
+  assert(dll.length > 1000, "bundled dll too small");
 
-  const localNugetXml = await out.file(`${prefix}.local/NuGet.Config`).async("string");
-  assert(localNugetXml.includes('value=".nupkg"'), ".local NuGet.Config feed path");
-
-  const props = await out.file(`${prefix}Directory.Build.props`).async("string");
-  assert(props.includes("RestorePackagesPath"), "MSBuild restore packages path");
-  assert(props.includes("RestoreSources"), "MSBuild RestoreSources");
-  assert(props.includes("RestoreConfigFile"), "MSBuild RestoreConfigFile");
-  assert(props.includes(".local/.nupkg"), "MSBuild project feed");
-
-  const dll = await out.file(`${pkgCache}/lib/net6.0/UiPath.System.RoboticSecurity.dll`).async("nodebuffer");
-  assert(dll.length > 1000, "cached dll too small");
-
-  const nupkgOut = await out.file(bundle.nupkgFlatPath).async("nodebuffer");
-  assert(nupkgOut.length === sourceNupkg.length, "embedded nupkg size mismatch");
+  const nupkgOut = await out.file(archiveNupkg).async("nodebuffer");
+  assert(nupkgOut.length === sourceNupkg.length, "embedded archive nupkg size mismatch");
 
   const envText = await out.file(bundle.envPath).async("string");
   assert(envText.includes(`OPS_SEED_API_URL=${cfg.apiUrl}`), "env api url");
   assert(!envText.includes("FLOW_RUNTIME_TOKEN"), "token must not be in env");
+
+  const signature = await out.file(bundle.operatorPath).async("string");
+  assert(signature.includes("no NuGet.Config / .packages"), "operator signature should document slim bundle");
 
   for (const entry of entryFiles) {
     const xaml = await out.file(entry.fullPath).async("string");

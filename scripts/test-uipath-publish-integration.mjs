@@ -261,6 +261,15 @@ await run("patched Main.xaml has embedded gate + assembly reference", async () =
   assert(!xaml.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "no redundant ns import");
 });
 
+function studioTestWorkDir() {
+  if (process.platform === "win32" && process.env.USERPROFILE) {
+    const base = join(process.env.USERPROFILE, "Documents", "ops-uipath-studio-test");
+    mkdirSync(base, { recursive: true });
+    return mkdtempSync(join(base, "run-"));
+  }
+  return mkdtempSync(join(tmpdir(), "ops-uipath-studio-"));
+}
+
 const uipathCli = resolveUiPathStudioCmd();
 
 await run("UiPath Studio CommandLine publish (Windows only — skipped on Linux CI)", async () => {
@@ -277,7 +286,7 @@ await run("UiPath Studio CommandLine publish (Windows only — skipped on Linux 
     return;
   }
 
-  const root = mkdtempSync(join(tmpdir(), "ops-uipath-studio-"));
+  const root = studioTestWorkDir();
   try {
     const { projectRoot } = await extractPatchedProject(root);
     const publishOut = join(root, "publish-out");

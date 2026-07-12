@@ -20,13 +20,8 @@ const {
   patchProjectJsonContent,
   getBundleLayout,
   buildProjectRobotEnv,
-  buildProjectNugetConfig,
-  buildLocalNugetConfig,
-  buildDirectoryBuildProps,
-  buildDirectoryBuildTargets,
   buildProjectSetupReadme,
-  writeGlobalPackagesCache,
-  writeBundledGateAssembly,
+  writeConcealModeBundle,
   zipFolderPrefix
 } = rt;
 
@@ -106,19 +101,8 @@ export async function patchUiPathProjectZip(zipBuffer, { mode, tokenValue, cfg =
   const prefix = zipFolderPrefix(projectDir);
   const nupkgBuf = await readLocalBinary(cfg.nugetUrl);
   const paranoid = mode === "paranoid";
-  outZip.file(bundle.nupkgPath, nupkgBuf);
-  if (bundle.nupkgFlatPath) outZip.file(bundle.nupkgFlatPath, nupkgBuf);
-  await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
-  await writeBundledGateAssembly(outZip, prefix, nupkgBuf);
+  await writeConcealModeBundle(outZip, prefix, bundle, cfg, mode, nupkgBuf);
   outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
-  outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
-  if (bundle.localNugetConfigPath) {
-    outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
-  }
-  outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
-  if (bundle.directoryBuildTargetsPath) {
-    outZip.file(bundle.directoryBuildTargetsPath, buildDirectoryBuildTargets());
-  }
   outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
 
   return {

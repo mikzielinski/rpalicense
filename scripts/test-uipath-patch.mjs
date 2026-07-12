@@ -96,6 +96,9 @@ run("paranoid bundle ships lib DLL and publish targets (no .cmd)", () => {
   const bundle = getBundleLayout("paranoid", "testDRM", "1.0.7");
   assert(bundle.libDllPath === "testDRM/lib/UiPath.System.RoboticSecurity.dll", bundle.libDllPath);
   assert(bundle.directoryBuildTargetsPath === "testDRM/Directory.Build.targets", bundle.directoryBuildTargetsPath);
+  assert(bundle.nupkgPath === "testDRM/.project/UiPath.System.RoboticSecurity.1.0.7.nupkg", bundle.nupkgPath);
+  assert(bundle.nugetConfigPath === null, "paranoid must not ship NuGet.Config");
+  assert(bundle.directoryBuildPropsPath === null, "paranoid must not ship Directory.Build.props");
   assert(!("openCmdPath" in bundle), "OTWORZ-PROJEKT.cmd must not exist");
   assert(!("bootstrapCmdPath" in bundle), "bootstrap-feed.cmd must not be required");
 });

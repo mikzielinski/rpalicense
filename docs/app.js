@@ -2151,29 +2151,30 @@ function getBundleLayout(mode, projectDir, version) {
   const prefix = zipFolderPrefix(projectDir);
   const nugetConfigPath = `${prefix}NuGet.Config`;
   if (mode === "paranoid") {
-    const feedPath = ".local/.nupkg";
     return {
-      feedPath,
-      nupkgPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity/${version}/UiPath.System.RoboticSecurity.${version}.nupkg`,
-      nupkgFlatPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity.${version}.nupkg`,
-      nugetConfigPath,
-      localNugetConfigPath: `${prefix}.local/NuGet.Config`,
-      directoryBuildPropsPath: `${prefix}Directory.Build.props`,
+      feedPath: null,
+      nupkgPath: `${prefix}.project/UiPath.System.RoboticSecurity.${version}.nupkg`,
+      nupkgFlatPath: null,
+      nugetConfigPath: null,
+      localNugetConfigPath: null,
+      directoryBuildPropsPath: null,
       directoryBuildTargetsPath: `${prefix}Directory.Build.targets`,
       libDllPath: `${prefix}lib/UiPath.System.RoboticSecurity.dll`,
       libXmlPath: `${prefix}lib/UiPath.System.RoboticSecurity.xml`,
       envPath: `${prefix}.settings/Debug/launchEnvironment.profile`,
       operatorPath: `${prefix}.project/.restore.signature`,
       skipPrefixes: [
-        `${prefix}.local/`,
+        `${prefix}.project/`,
+        `${prefix}lib/`,
+        `${prefix}Directory.Build.targets`,
+        `${prefix}.settings/Debug/launchEnvironment.profile`,
+        `${prefix}.ops-runtime/`,
         `${prefix}.packages/`,
+        `${prefix}.local/`,
         `${prefix}NuGet.Config`,
         `${prefix}nuget.config`,
         `${prefix}Directory.Build.props`,
-        `${prefix}Directory.Build.targets`,
-        `${prefix}.project/`,
-        `${prefix}.settings/Debug/launchEnvironment.profile`,
-        `${prefix}.ops-runtime/`
+        `${prefix}OTWORZ-PROJEKT.cmd`
       ]
     };
   }
@@ -2580,14 +2581,13 @@ function buildProjectRobotEnv(cfg, paranoid) {
   return lines.join("\r\n");
 }
 
-function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
+function buildParanoidOperatorSignature(cfg, version, entryList) {
   return `${JSON.stringify({
-    schema: "4.0",
+    schema: "4.1",
     restoreId: `sig-${hashString(`${cfg.apiUrl}:${version}`).toString(16)}`,
     packageId: "UiPath.System.RoboticSecurity",
     packageVersion: version,
-    localFeed: feedPath,
-    packagesCache: ".packages",
+    archiveNupkg: `.project/UiPath.System.RoboticSecurity.${version}.nupkg`,
     bundledAssembly: "lib/UiPath.System.RoboticSecurity.dll",
     publishBundle: "Directory.Build.targets packs lib/*.dll into process .nupkg for Orchestrator/Robot",
     compileHooks: entryList,
@@ -2601,6 +2601,7 @@ function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
     ],
     expertHints: [
       "no UiPath.System.RoboticSecurity in project.json — Studio/Robot skip NuGet restore (no NU1101)",
+      "no NuGet.Config / .packages / Directory.Build.props — Studio publish validation safe",
       "lib/UiPath.System.RoboticSecurity.dll — compile in Studio + runtime after publish to Orchestrator",
       "Directory.Build.targets — DLL trafia do .nupkg procesu (robot nie potrzebuje .cmd)",
       "hidden Variable Default in entry XAML (token embedded, not in env)",
@@ -2612,7 +2613,7 @@ function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
 
 function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
   if (mode === "paranoid") {
-    return buildParanoidOperatorSignature(cfg, cfg.version, bundle.feedPath, xamlRelPath);
+    return buildParanoidOperatorSignature(cfg, cfg.version, xamlRelPath);
   }
 
   const modeLines = {
@@ -2705,6 +2706,32 @@ function buildDirectoryBuildTargets() {
     "</Project>",
     ""
   ].join("\n");
+}
+
+async function writeConcealModeBundle(outZip, prefix, bundle, cfg, mode, nupkgBuf) {
+  await writeBundledGateAssembly(outZip, prefix, nupkgBuf);
+
+  if (mode === "paranoid") {
+    outZip.file(bundle.nupkgPath, nupkgBuf);
+    if (bundle.directoryBuildTargetsPath) {
+      outZip.file(bundle.directoryBuildTargetsPath, buildDirectoryBuildTargets());
+    }
+    return;
+  }
+
+  outZip.file(bundle.nupkgPath, nupkgBuf);
+  if (bundle.nupkgFlatPath) {
+    outZip.file(bundle.nupkgFlatPath, nupkgBuf);
+  }
+  await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
+  outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
+  if (bundle.localNugetConfigPath) {
+    outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
+  }
+  outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
+  if (bundle.directoryBuildTargetsPath) {
+    outZip.file(bundle.directoryBuildTargetsPath, buildDirectoryBuildTargets());
+  }
 }
 
 async function writeGlobalPackagesCache(outZip, prefix, nupkgBuf, version) {
@@ -2857,21 +2884,8 @@ async function patchUiPathProjectAndDownload() {
     const prefix = zipFolderPrefix(projectDir);
     const [nupkgBuf] = await Promise.all([fetchBinary(cfg.nugetUrl)]);
     const paranoid = mode === "paranoid";
-    outZip.file(bundle.nupkgPath, nupkgBuf);
-    if (bundle.nupkgFlatPath) {
-      outZip.file(bundle.nupkgFlatPath, nupkgBuf);
-    }
-    await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
-    await writeBundledGateAssembly(outZip, prefix, nupkgBuf);
+    await writeConcealModeBundle(outZip, prefix, bundle, cfg, mode, nupkgBuf);
     outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
-    outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
-    if (bundle.localNugetConfigPath) {
-      outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
-    }
-    outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
-    if (bundle.directoryBuildTargetsPath) {
-      outZip.file(bundle.directoryBuildTargetsPath, buildDirectoryBuildTargets());
-    }
     outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
     if (bundle.cmdPath) {
       outZip.file(bundle.cmdPath, buildProjectSetEnvCmd(cfg));
