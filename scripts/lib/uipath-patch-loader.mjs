@@ -12,7 +12,7 @@ export function loadUiPathPatchRuntime(appJsPath = join(root, "docs/app.js")) {
     inject: appJs.indexOf("const OPS_RUNTIME_GATE_ID"),
     mid1: appJs.indexOf("function injectRefsOnlyIntoXaml(xamlText"),
     xaml: appJs.indexOf("const XAML_NS_BLOCK_RE"),
-    xamlEnd: appJs.indexOf("function findSequenceInsertIndex(xaml)"),
+    xamlEnd: appJs.indexOf("function readXamlInjectToken()"),
     parse: appJs.indexOf("function normalizeZipPath(path)"),
     parseEnd: appJs.indexOf("function renderUiPathProjectXamlSelect(xamlFiles"),
     json: appJs.indexOf("function patchProjectJsonContent(projectJson, version"),

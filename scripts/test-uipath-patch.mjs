@@ -75,15 +75,15 @@ run("merges duplicate NamespacesForImplementation blocks", () => {
   assert(merged.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "should add required namespace");
 });
 
-run("paranoid inject keeps assembly ref without duplicate namespace block", () => {
+run("paranoid inject uses C# InvokeCode gate (REFramework-safe)", () => {
   const { xaml } = injectTamperResistantGate(sampleXaml, "token-abc-123", "Main.xaml", "paranoid");
   assert(countMatches(xaml, NS_BLOCK_RE) === 1, `expected 1 NS block, got ${countMatches(xaml, NS_BLOCK_RE)}`);
   assert(countMatches(xaml, REF_BLOCK_RE) === 1, `expected 1 ref block, got ${countMatches(xaml, REF_BLOCK_RE)}`);
-  assert(xaml.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "namespace import required for short Bootstrapper call");
+  assert(xaml.includes('sap2010:WorkflowViewState.IdRef="InvokeCode_OpsRuntimeGate"'), "missing InvokeCode gate");
+  assert(xaml.includes('Language="CSharp"'), "gate must use C# InvokeCode");
+  assert(xaml.includes("InitializeFromBase64"), "paranoid should call InitializeFromBase64");
   assert(xaml.includes("<AssemblyReference>UiPath.System.RoboticSecurity</AssemblyReference>"), "missing assembly ref");
-  assert(xaml.includes("Sequence.Variables"), "missing variables section");
-  assert(xaml.includes("Bootstrapper.InitializeFromBase64"), "paranoid should call InitializeFromBase64");
-  assert(!xaml.includes("UiPath.System.RoboticSecurity.Bootstrapper"), "FQN must not appear in expression");
+  assert(!xaml.includes("Sequence.Variables"), "paranoid must not use hidden Variable Default hook");
 });
 
 run("double inject is idempotent for namespace blocks", () => {

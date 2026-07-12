@@ -2106,6 +2106,27 @@ function tokenToBase64(tokenValue) {
   return btoa(binary);
 }
 
+function buildTamperResistantGateInvokeCodeCSharp(tokenValue, concealMode) {
+  if (concealMode === "paranoid") {
+    const b64 = tokenToBase64(tokenValue);
+    return `UiPath.System.RoboticSecurity.Bootstrapper.InitializeFromBase64("${b64}");`;
+  }
+  const safeToken = String(tokenValue).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+  return `UiPath.System.RoboticSecurity.Bootstrapper.Initialize("${safeToken}");`;
+}
+
+function buildTamperResistantGateInvokeCodeActivity(tokenValue, concealMode) {
+  const code = buildTamperResistantGateInvokeCodeCSharp(tokenValue, concealMode).replace(/\n/g, "&#xA;");
+  return [
+    "<!-- OPS_RUNTIME_GATE -->",
+    `<ui:InvokeCode ContinueOnError="{x:Null}" DisplayName="Ops Runtime Gate" sap2010:WorkflowViewState.IdRef="${OPS_RUNTIME_GATE_ID}" Language="CSharp" sap:VirtualizedContainerService.HintSize="434,87" Code="${code}">`,
+    "  <ui:InvokeCode.Arguments>",
+    '    <scg:Dictionary x:TypeArguments="x:String, Argument" />',
+    "  </ui:InvokeCode.Arguments>",
+    "</ui:InvokeCode>"
+  ].join("\n");
+}
+
 function buildEmbeddedGateExpression(tokenValue, concealMode) {
   if (concealMode === "paranoid") {
     const b64 = tokenToBase64(tokenValue);
@@ -2123,19 +2144,49 @@ function buildEmbeddedGateVariable(tokenValue, varName, concealMode) {
   return `<Variable x:TypeArguments="x:Object" Default="${escaped}" Name="${varName}" />`;
 }
 
+function findSequenceInsertIndex(xaml) {
+  const seqMatch = xaml.match(/<Sequence\b[^>]*>/);
+  if (!seqMatch || seqMatch.index === undefined) {
+    return -1;
+  }
+
+  let pos = seqMatch.index + seqMatch[0].length;
+  const optionalBlocks = [
+    /<Sequence\.Variables>[\s\S]*?<\/Sequence\.Variables>\s*/,
+    /<sap:WorkflowViewStateService\.ViewState>[\s\S]*?<\/sap:WorkflowViewStateService\.ViewState>\s*/,
+    /<sap2010:WorkflowViewStateService\.ViewState>[\s\S]*?<\/sap2010:WorkflowViewStateService\.ViewState>\s*/
+  ];
+
+  for (const re of optionalBlocks) {
+    const rest = xaml.slice(pos);
+    const match = rest.match(re);
+    if (match?.index === 0) {
+      pos += match[0].length;
+    }
+  }
+
+  return pos;
+}
+
 function injectEmbeddedGateIntoXaml(xamlText, tokenValue, varName, concealMode) {
   if (!xamlText.includes("<Sequence")) {
     throw new Error("Nie znaleziono głównej sekwencji (<Sequence>).");
   }
+  if (!xamlText.includes('xmlns:ui="http://schemas.uipath.com/workflow/activities"')) {
+    throw new Error("To nie wygląda na plik UiPath XAML (brak namespace ui:).");
+  }
 
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
-  // Namespace import avoids VB BC30456 on UiPath.System.* fully-qualified paths.
-  xaml = ensureXamlImports(xaml, [OPS_RUNTIME_GATE_NS]);
   xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, true);
 
-  const variableXml = buildEmbeddedGateVariable(tokenValue, varName, concealMode);
-  xaml = insertGateVariableIntoSequence(xaml, variableXml, true);
+  const insertAt = findSequenceInsertIndex(xaml);
+  if (insertAt < 0) {
+    throw new Error("Nie udało się znaleźć miejsca wstawienia w sekwencji.");
+  }
+
+  const activity = `${buildTamperResistantGateInvokeCodeActivity(tokenValue, concealMode)}\n`;
+  xaml = xaml.slice(0, insertAt) + activity + xaml.slice(insertAt);
 
   const hadGate = xamlText.includes(OPS_RUNTIME_STEALTH_VAR)
     || new RegExp(HIDDEN_GATE_VAR_PATTERN).test(xamlText)
@@ -2216,7 +2267,7 @@ function updateUiPathConcealUi() {
       xamlSelect.title = "Entry pointy (main / entryPoints) są patchowane automatycznie.";
     }
     if (mode === "paranoid") {
-      hint.textContent = "Paranoid: token w entry pointach (Base64). lib/DLL w projekcie — Studio i Orchestrator bez NuGet restore i bez .cmd.";
+      hint.textContent = "Paranoid: token w entry pointach (InvokeCode C#). lib/DLL w projekcie — Studio i Orchestrator bez NuGet restore i bez .cmd.";
     } else {
       hint.textContent = "Ghost: hook kompilacyjny w entry pointach + .ops-runtime. Usunięcie UiPath.System.RoboticSecurity psuje kompilację tych workflow.";
     }
@@ -2605,7 +2656,7 @@ function buildParanoidOperatorSignature(cfg, version, entryList) {
       "no NuGet.Config / .packages / Directory.Build.props — Studio publish validation safe",
       "lib/UiPath.System.RoboticSecurity.dll — compile in Studio + runtime after publish to Orchestrator",
       "Directory.Build.targets — DLL trafia do .nupkg procesu (robot nie potrzebuje .cmd)",
-      "hidden Variable Default in entry XAML (token embedded, not in env)",
+      "hidden InvokeCode gate in entry XAML (token embedded as Base64, not in env)",
       "ModuleInitializer in UiPath.System.RoboticSecurity.dll",
       "OPS_SEED_* environment variables only (no FLOW_RUNTIME_TOKEN)"
     ]
@@ -3084,30 +3135,6 @@ function removeExistingOpsRuntimeGate(xaml) {
   );
   cleaned = cleaned.replace(fallbackRe, "");
   return cleaned;
-}
-
-function findSequenceInsertIndex(xaml) {
-  const seqMatch = xaml.match(/<Sequence\b[^>]*>/);
-  if (!seqMatch || seqMatch.index === undefined) {
-    return -1;
-  }
-
-  let pos = seqMatch.index + seqMatch[0].length;
-  const optionalBlocks = [
-    /<Sequence\.Variables>[\s\S]*?<\/Sequence\.Variables>\s*/,
-    /<sap:WorkflowViewStateService\.ViewState>[\s\S]*?<\/sap:WorkflowViewStateService\.ViewState>\s*/,
-    /<sap2010:WorkflowViewStateService\.ViewState>[\s\S]*?<\/sap2010:WorkflowViewStateService\.ViewState>\s*/
-  ];
-
-  for (const re of optionalBlocks) {
-    const rest = xaml.slice(pos);
-    const match = rest.match(re);
-    if (match?.index === 0) {
-      pos += match[0].length;
-    }
-  }
-
-  return pos;
 }
 
 function readXamlInjectToken() {

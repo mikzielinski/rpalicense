@@ -86,7 +86,8 @@ await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
   for (const entry of entryFiles) {
     const xaml = await out.file(entry.fullPath).async("string");
     assert([...xaml.matchAll(NS_BLOCK_RE)].length === 1, `${entry.relPath}: duplicate NS block`);
-    assert(xaml.includes("Bootstrapper.InitializeFromBase64"), `${entry.relPath}: missing embedded token`);
+    assert(xaml.includes("InitializeFromBase64"), `${entry.relPath}: missing embedded token`);
+    assert(xaml.includes("InvokeCode_OpsRuntimeGate"), `${entry.relPath}: missing invoke code gate`);
   }
 });
 

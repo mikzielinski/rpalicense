@@ -256,7 +256,8 @@ await run("patched Main.xaml has embedded gate + assembly reference", async () =
   });
   const zip = await JSZip.loadAsync(buffer);
   const xaml = await zip.file("sample-uipath-project/Main.xaml").async("string");
-  assert(xaml.includes("Bootstrapper.InitializeFromBase64"), "embedded token");
+  assert(xaml.includes("InitializeFromBase64"), "embedded token");
+  assert(xaml.includes("InvokeCode_OpsRuntimeGate"), "invoke code gate");
   assert(xaml.includes("<AssemblyReference>UiPath.System.RoboticSecurity</AssemblyReference>"), "asm ref");
 });
 
