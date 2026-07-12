@@ -24,8 +24,7 @@ const {
   buildProjectNugetConfig,
   buildLocalNugetConfig,
   buildDirectoryBuildProps,
-  buildBootstrapFeedCmd,
-  buildOpenProjectCmd,
+  buildDirectoryBuildTargets,
   buildProjectSetupReadme,
   writeGlobalPackagesCache,
   writeBundledGateAssembly,
@@ -125,11 +124,8 @@ async function patchUiPathProjectZip(zipBuffer, { mode, tokenValue }) {
     outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
   }
   outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
-  if (bundle.bootstrapCmdPath) {
-    outZip.file(bundle.bootstrapCmdPath, buildBootstrapFeedCmd(cfg.version));
-  }
-  if (bundle.openCmdPath) {
-    outZip.file(bundle.openCmdPath, buildOpenProjectCmd(projectJson.main ?? "Main.xaml"));
+  if (bundle.directoryBuildTargetsPath) {
+    outZip.file(bundle.directoryBuildTargetsPath, buildDirectoryBuildTargets());
   }
   outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
 
@@ -180,8 +176,9 @@ await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
   assert(outPaths.includes(`${prefix}.local/NuGet.Config`), ".local/NuGet.Config missing");
   assert(outPaths.includes(`${prefix}Directory.Build.props`), "Directory.Build.props missing");
   assert(outPaths.includes(`${prefix}lib/UiPath.System.RoboticSecurity.dll`), "bundled gate DLL missing");
-  assert(outPaths.includes(`${prefix}.project/bootstrap-feed.cmd`), "bootstrap-feed.cmd missing");
-  assert(outPaths.includes(`${prefix}OTWORZ-PROJEKT.cmd`), "OTWORZ-PROJEKT.cmd missing");
+  assert(outPaths.includes(`${prefix}Directory.Build.targets`), "Directory.Build.targets missing");
+  assert(!outPaths.includes(`${prefix}OTWORZ-PROJEKT.cmd`), "must not require OTWORZ-PROJEKT.cmd");
+  assert(!outPaths.some((p) => p.includes("bootstrap-feed.cmd")), "must not require bootstrap-feed.cmd");
   assert(outPaths.includes(`${pkgCache}/lib/net6.0/UiPath.System.RoboticSecurity.dll`), "missing pre-cached dll");
   assert(outPaths.includes(`${pkgCache}/uipath.system.roboticsecurity.${cfg.version}.nupkg`), "missing cached nupkg");
   assert(!outPaths.some((p) => p.includes("/_rels/")), "must not extract nupkg _rels into cache");

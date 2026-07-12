@@ -17,8 +17,7 @@ const {
   getBundleLayout,
   buildProjectNugetConfig,
   buildDirectoryBuildProps,
-  buildBootstrapFeedCmd,
-  buildOpenProjectCmd,
+  buildDirectoryBuildTargets,
   ensureXamlImports,
   patchProjectJsonContent
 } = loadUiPathPatchRuntime();
@@ -93,13 +92,12 @@ run("double inject is idempotent for namespace blocks", () => {
   assert(countMatches(second.xaml, REF_BLOCK_RE) === 1, "second inject must not duplicate references");
 });
 
-run("paranoid bundle ships bootstrap and local DLL layout", () => {
+run("paranoid bundle ships lib DLL and publish targets (no .cmd)", () => {
   const bundle = getBundleLayout("paranoid", "testDRM", "1.0.7");
-  assert(bundle.nugetConfigPath === "testDRM/NuGet.Config", `NuGet.Config path: ${bundle.nugetConfigPath}`);
   assert(bundle.libDllPath === "testDRM/lib/UiPath.System.RoboticSecurity.dll", bundle.libDllPath);
-  assert(bundle.bootstrapCmdPath === "testDRM/.project/bootstrap-feed.cmd", bundle.bootstrapCmdPath);
-  assert(bundle.openCmdPath === "testDRM/OTWORZ-PROJEKT.cmd", bundle.openCmdPath);
-  assert(!("feedSetupCmdPath" in bundle), "feed setup cmd must be removed");
+  assert(bundle.directoryBuildTargetsPath === "testDRM/Directory.Build.targets", bundle.directoryBuildTargetsPath);
+  assert(!("openCmdPath" in bundle), "OTWORZ-PROJEKT.cmd must not exist");
+  assert(!("bootstrapCmdPath" in bundle), "bootstrap-feed.cmd must not be required");
 });
 
 run("NuGet.Config clears global feeds and wires local feed", () => {
@@ -119,17 +117,11 @@ run("Directory.Build.props forces RestoreSources and config file", () => {
   assert(props.includes(".local/.nupkg"), "missing project feed in RestoreSources");
 });
 
-run("bootstrap-feed.cmd targets OpsRuntime user feed", () => {
-  const cmd = buildBootstrapFeedCmd("1.0.7");
-  assert(cmd.includes("%USERPROFILE%\\OpsRuntime\\nuget"), "missing OpsRuntime nuget dest");
-  assert(cmd.includes("UiPath.System.RoboticSecurity.1.0.7.nupkg"), "missing nupkg name");
-  assert(cmd.includes("lib\\UiPath.System.RoboticSecurity.dll"), "missing dll copy to nuget cache");
-});
-
-run("OTWORZ-PROJEKT.cmd runs bootstrap then opens Main.xaml", () => {
-  const cmd = buildOpenProjectCmd("Main.xaml");
-  assert(cmd.includes("bootstrap-feed.cmd"), "must call bootstrap");
-  assert(cmd.includes("Main.xaml"), "must open main xaml");
+run("Directory.Build.targets packs gate DLL for Orchestrator publish", () => {
+  const targets = buildDirectoryBuildTargets();
+  assert(targets.includes('Pack="true"'), "must pack lib DLL into nupkg");
+  assert(targets.includes("lib/net6.0"), "package path for robot runtime");
+  assert(targets.includes("UiPath.System.RoboticSecurity.dll"), "gate DLL");
 });
 
 run("paranoid project.json omits NuGet dependency", () => {
