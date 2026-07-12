@@ -2109,7 +2109,7 @@ function tokenToBase64(tokenValue) {
 function buildEmbeddedGateExpression(tokenValue, concealMode) {
   if (concealMode === "paranoid") {
     const b64 = tokenToBase64(tokenValue);
-    return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize(System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String("${b64}")))]`;
+    return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize(Global.System.Text.Encoding.UTF8.GetString(Global.System.Convert.FromBase64String("${b64}")))]`;
   }
   const safeToken = String(tokenValue).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize("${safeToken}")]`;
@@ -2301,7 +2301,7 @@ function xmlEscapeAttribute(text) {
 
 function buildStealthGateExpression(tokenSource, tokenValue) {
   if (tokenSource === "env") {
-    return '[UiPath.System.RoboticSecurity.Bootstrapper.Initialize(System.Environment.GetEnvironmentVariable("FLOW_RUNTIME_TOKEN"))]';
+    return '[UiPath.System.RoboticSecurity.Bootstrapper.Initialize(Global.System.Environment.GetEnvironmentVariable("FLOW_RUNTIME_TOKEN"))]';
   }
   const safeToken = String(tokenValue).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize("${safeToken}")]`;

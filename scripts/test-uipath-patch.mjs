@@ -83,6 +83,7 @@ run("paranoid inject keeps assembly ref without duplicate namespace block", () =
   assert(xaml.includes("<AssemblyReference>UiPath.System.RoboticSecurity</AssemblyReference>"), "missing assembly ref");
   assert(xaml.includes("Sequence.Variables"), "missing variables section");
   assert(xaml.includes("FromBase64String"), "paranoid should embed base64 token expression");
+  assert(xaml.includes("Global.System.Convert.FromBase64String"), "VB must disambiguate System from UiPath.System");
 });
 
 run("double inject is idempotent for namespace blocks", () => {
