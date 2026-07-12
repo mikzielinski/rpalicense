@@ -2148,17 +2148,21 @@ function injectEmbeddedGateIntoXaml(xamlText, tokenValue, varName, concealMode) 
 
 function getBundleLayout(mode, projectDir, version) {
   const prefix = zipFolderPrefix(projectDir);
+  const nugetConfigPath = `${prefix}nuget.config`;
   if (mode === "paranoid") {
     const feedPath = ".local/.nupkg";
     return {
       feedPath,
       nupkgPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity/${version}/UiPath.System.RoboticSecurity.${version}.nupkg`,
-      nugetConfigPath: `${prefix}.nuget/NuGet.Config`,
+      nupkgFlatPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity.${version}.nupkg`,
+      nugetConfigPath,
       envPath: `${prefix}.settings/Debug/launchEnvironment.profile`,
       operatorPath: `${prefix}.project/.restore.signature`,
+      feedSetupCmdPath: `${prefix}USTAW-FEED-NUGET.cmd`,
       skipPrefixes: [
         `${prefix}.local/.nupkg/`,
-        `${prefix}.nuget/`,
+        `${prefix}nuget.config`,
+        `${prefix}USTAW-FEED-NUGET.cmd`,
         `${prefix}.settings/Debug/launchEnvironment.profile`,
         `${prefix}.project/.restore.signature`,
         `${prefix}.ops-runtime/`
@@ -2169,11 +2173,16 @@ function getBundleLayout(mode, projectDir, version) {
   return {
     feedPath: ".ops-runtime/nuget",
     nupkgPath: `${prefix}.ops-runtime/nuget/UiPath.System.RoboticSecurity.${version}.nupkg`,
-    nugetConfigPath: `${prefix}.ops-runtime/nuget.config`,
+    nugetConfigPath,
     envPath: `${prefix}.ops-runtime/robot.env`,
     operatorPath: `${prefix}.ops-runtime/INSTRUKCJA.txt`,
     cmdPath: `${prefix}.ops-runtime/USTAW-ZMIENNE.cmd`,
-    skipPrefixes: [`${prefix}.ops-runtime/`]
+    feedSetupCmdPath: `${prefix}USTAW-FEED-NUGET.cmd`,
+    skipPrefixes: [
+      `${prefix}.ops-runtime/`,
+      `${prefix}nuget.config`,
+      `${prefix}USTAW-FEED-NUGET.cmd`
+    ]
   };
 }
 
@@ -2613,24 +2622,58 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
     ...(modeLines[mode] ?? modeLines.deep),
     "",
     "Po rozpakowaniu ZIP:",
-    `1. UiPath Studio -> Manage Sources -> Add folder feed: ${bundle.feedPath}`,
-    "2. Manage Packages -> Restore / zainstaluj UiPath.System.RoboticSecurity",
-    `3. Ustaw zmienne z ${bundle.envPath}`,
-    "4. Opublikuj / uruchom proces"
+    "1. (Opcja A) Otwórz projekt w Studio — nuget.config w katalogu projektu wskazuje lokalny feed.",
+    `2. (Opcja B) Dwuklik USTAW-FEED-NUGET.cmd — skopiuje paczkę ${cfg.version} do %USERPROFILE%\\OpsRuntime\\nuget`,
+    `3. Manage Sources -> dodaj folder feed: ${bundle.feedPath} (jeśli restore nadal nie widzi paczki)`,
+    "4. Manage Packages -> Restore / zainstaluj UiPath.System.RoboticSecurity",
+    `5. Ustaw zmienne z ${bundle.envPath}`,
+    "6. Opublikuj / uruchom proces"
   ].join("\r\n");
 }
 
-function buildProjectNugetConfig(feedPath, paranoid) {
-  const key = paranoid ? "LocalCache" : "OpsRuntimeLocal";
+function buildProjectNugetConfig(feedPath) {
   return [
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+    "<!-- Ops Runtime — lokalny feed (obok project.json) dla UiPath.System.RoboticSecurity -->",
     "<configuration>",
     "  <packageSources>",
-    `    <add key="${key}" value="${feedPath}" />`,
+    `    <add key="OpsRuntimeLocal" value="${feedPath}" />`,
     "  </packageSources>",
     "</configuration>",
     ""
   ].join("\n");
+}
+
+function buildProjectFeedSetupCmd(version, feedPath) {
+  const nupkgName = `UiPath.System.RoboticSecurity.${version}.nupkg`;
+  const localFeed = feedPath.replace(/\//g, "\\");
+  return [
+    "@echo off",
+    "chcp 65001 >nul",
+    "setlocal",
+    `set \"NUPKG_NAME=${nupkgName}\"`,
+    `set \"VERSION=${version}\"`,
+    "set \"OPS_GLOBAL=%USERPROFILE%\\OpsRuntime\\nuget\"",
+    `set \"OPS_LOCAL=%~dp0${localFeed}\"`,
+    "echo Ops Runtime — aktualizacja feedu NuGet",
+    "echo.",
+    "if not exist \"%OPS_GLOBAL%\" mkdir \"%OPS_GLOBAL%\"",
+    `if exist \"%OPS_LOCAL%\\%NUPKG_NAME%\" (`,
+    "  copy /Y \"%OPS_LOCAL%\\%NUPKG_NAME%\" \"%OPS_GLOBAL%\\\" >nul",
+    "  echo Skopiowano %%NUPKG_NAME%% do %%OPS_GLOBAL%%",
+    ") else if exist \"%OPS_LOCAL%\\UiPath.System.RoboticSecurity\\%VERSION%\\%NUPKG_NAME%\" (",
+    "  copy /Y \"%OPS_LOCAL%\\UiPath.System.RoboticSecurity\\%VERSION%\\%NUPKG_NAME%\" \"%OPS_GLOBAL%\\\" >nul",
+    "  echo Skopiowano %%NUPKG_NAME%% do %%OPS_GLOBAL%%",
+    ") else (",
+    "  echo BLAD: Brak %%NUPKG_NAME%% w %%OPS_LOCAL%%",
+    "  pause",
+    "  exit /b 1",
+    ")",
+    "echo.",
+    "echo W UiPath Studio: Manage Sources -^> OpsRuntime Local -^> %USERPROFILE%\\OpsRuntime\\nuget",
+    "echo Nastepnie: Manage Packages -^> Restore",
+    "pause"
+  ].join("\r\n");
 }
 
 function buildProjectSetEnvCmd(cfg) {
@@ -2750,9 +2793,15 @@ async function patchUiPathProjectAndDownload() {
     const [nupkgBuf] = await Promise.all([fetchBinary(cfg.nugetUrl)]);
     const paranoid = mode === "paranoid";
     outZip.file(bundle.nupkgPath, nupkgBuf);
+    if (bundle.nupkgFlatPath) {
+      outZip.file(bundle.nupkgFlatPath, nupkgBuf);
+    }
     outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
-    outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath, paranoid));
+    outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
     outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
+    if (bundle.feedSetupCmdPath) {
+      outZip.file(bundle.feedSetupCmdPath, buildProjectFeedSetupCmd(cfg.version, bundle.feedPath));
+    }
     if (bundle.cmdPath) {
       outZip.file(bundle.cmdPath, buildProjectSetEnvCmd(cfg));
     }

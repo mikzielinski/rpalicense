@@ -9,7 +9,7 @@ KROK 1 — INSTALACJA (jeden klik)
   Utworzy folder:
     C:\Users\TWOJ_USER\OpsRuntime\
       lib\UiPath.System.RoboticSecurity.dll
-      nuget\UiPath.System.RoboticSecurity.1.0.6.nupkg
+      nuget\UiPath.System.RoboticSecurity.1.0.7.nupkg
       catalog\seed.jwt
 
   Oraz kopie na Pulpicie:
