@@ -2130,7 +2130,7 @@ function injectEmbeddedGateIntoXaml(xamlText, tokenValue, varName, concealMode) 
 
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
-  xaml = ensureXamlImports(xaml, [OPS_RUNTIME_GATE_NS]);
+  // Fully-qualified expression in Variable Default — only AssemblyReference is required.
   xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, true);
 
   const variableXml = buildEmbeddedGateVariable(tokenValue, varName, concealMode);
@@ -2143,9 +2143,13 @@ function injectEmbeddedGateIntoXaml(xamlText, tokenValue, varName, concealMode) 
   return { xaml, replaced: hadGate };
 }
 
+const UIPATH_OFFICIAL_FEED =
+  "https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json";
+const NUGET_ORG_FEED = "https://api.nuget.org/v3/index.json";
+
 function getBundleLayout(mode, projectDir, version) {
   const prefix = zipFolderPrefix(projectDir);
-  const nugetConfigPath = `${prefix}nuget.config`;
+  const nugetConfigPath = `${prefix}NuGet.Config`;
   if (mode === "paranoid") {
     const feedPath = ".local/.nupkg";
     return {
@@ -2153,12 +2157,14 @@ function getBundleLayout(mode, projectDir, version) {
       nupkgPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity/${version}/UiPath.System.RoboticSecurity.${version}.nupkg`,
       nupkgFlatPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity.${version}.nupkg`,
       nugetConfigPath,
+      localNugetConfigPath: `${prefix}.local/NuGet.Config`,
       directoryBuildPropsPath: `${prefix}Directory.Build.props`,
       envPath: `${prefix}.settings/Debug/launchEnvironment.profile`,
       operatorPath: `${prefix}.project/.restore.signature`,
       skipPrefixes: [
-        `${prefix}.local/.nupkg/`,
+        `${prefix}.local/`,
         `${prefix}.packages/`,
+        `${prefix}NuGet.Config`,
         `${prefix}nuget.config`,
         `${prefix}Directory.Build.props`,
         `${prefix}.project/`,
@@ -2172,6 +2178,7 @@ function getBundleLayout(mode, projectDir, version) {
     feedPath: ".ops-runtime/nuget",
     nupkgPath: `${prefix}.ops-runtime/nuget/UiPath.System.RoboticSecurity.${version}.nupkg`,
     nugetConfigPath,
+    localNugetConfigPath: null,
     directoryBuildPropsPath: `${prefix}Directory.Build.props`,
     envPath: `${prefix}.ops-runtime/robot.env`,
     operatorPath: `${prefix}.ops-runtime/INSTRUKCJA.txt`,
@@ -2179,6 +2186,7 @@ function getBundleLayout(mode, projectDir, version) {
     skipPrefixes: [
       `${prefix}.ops-runtime/`,
       `${prefix}.packages/`,
+      `${prefix}NuGet.Config`,
       `${prefix}nuget.config`,
       `${prefix}Directory.Build.props`,
       `${prefix}.project/`
@@ -2631,17 +2639,24 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
 function buildProjectNugetConfig(feedPath) {
   return [
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-    "<!-- Ops Runtime — lokalny cache i feed (restore przy otwarciu projektu) -->",
+    "<!-- Ops Runtime — project feed (paths relative to this file) -->",
     "<configuration>",
     "  <config>",
     "    <add key=\"globalPackagesFolder\" value=\".packages\" />",
     "  </config>",
     "  <packageSources>",
-    `    <add key="OpsRuntimeLocal" value="${feedPath}" />`,
+    "    <clear />",
+    `    <add key="OpsRuntimeProject" value="${feedPath}" />`,
+    `    <add key="nuget.org" value="${NUGET_ORG_FEED}" />`,
+    `    <add key="UiPathOfficial" value="${UIPATH_OFFICIAL_FEED}" />`,
     "  </packageSources>",
     "</configuration>",
     ""
   ].join("\n");
+}
+
+function buildLocalNugetConfig() {
+  return buildProjectNugetConfig(".nupkg");
 }
 
 function buildDirectoryBuildProps(feedPath) {
@@ -2650,7 +2665,8 @@ function buildDirectoryBuildProps(feedPath) {
     "<Project>",
     "  <PropertyGroup>",
     "    <RestorePackagesPath>$(MSBuildThisFileDirectory).packages</RestorePackagesPath>",
-    `    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)${feed}</RestoreAdditionalProjectSources>`,
+    "    <RestoreConfigFile>$(MSBuildThisFileDirectory)NuGet.Config</RestoreConfigFile>",
+    `    <RestoreSources>$(MSBuildThisFileDirectory)${feed};${NUGET_ORG_FEED};${UIPATH_OFFICIAL_FEED}</RestoreSources>`,
     "  </PropertyGroup>",
     "</Project>",
     ""
@@ -2668,6 +2684,12 @@ async function writeGlobalPackagesCache(outZip, prefix, nupkgBuf, version) {
   const inner = await JSZip.loadAsync(nupkgBuf);
   for (const [path, entry] of Object.entries(inner.files)) {
     if (entry.dir) continue;
+    if (path.startsWith("_rels/") || path === "[Content_Types].xml" || path.startsWith("package/")) {
+      continue;
+    }
+    if (path !== `${packageId}.nuspec` && !path.startsWith("lib/")) {
+      continue;
+    }
     const target = path === `${packageId}.nuspec` ? `${idLower}.nuspec` : path;
     outZip.file(`${base}/${target}`, await entry.async("uint8array"));
   }
@@ -2796,6 +2818,9 @@ async function patchUiPathProjectAndDownload() {
     await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
     outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
     outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
+    if (bundle.localNugetConfigPath) {
+      outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
+    }
     outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
     outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
     if (bundle.cmdPath) {

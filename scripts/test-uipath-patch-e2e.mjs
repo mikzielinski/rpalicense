@@ -22,6 +22,7 @@ const {
   getBundleLayout,
   buildProjectRobotEnv,
   buildProjectNugetConfig,
+  buildLocalNugetConfig,
   buildDirectoryBuildProps,
   buildProjectSetupReadme,
   writeGlobalPackagesCache,
@@ -114,6 +115,9 @@ async function patchUiPathProjectZip(zipBuffer, { mode, tokenValue }) {
   await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
   outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
   outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
+  if (bundle.localNugetConfigPath) {
+    outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
+  }
   outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
   outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
 
@@ -160,10 +164,13 @@ await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
   const pkgCache = `${prefix}.packages/uipath.system.roboticsecurity/${cfg.version}`;
 
   assert(outPaths.includes(projectJsonPath), "project.json missing");
-  assert(outPaths.includes(`${prefix}nuget.config`), "nuget.config missing at project root");
+  assert(outPaths.includes(`${prefix}NuGet.Config`), "NuGet.Config missing at project root");
+  assert(outPaths.includes(`${prefix}.local/NuGet.Config`), ".local/NuGet.Config missing");
   assert(outPaths.includes(`${prefix}Directory.Build.props`), "Directory.Build.props missing");
   assert(outPaths.includes(`${pkgCache}/lib/net6.0/UiPath.System.RoboticSecurity.dll`), "missing pre-cached dll");
   assert(outPaths.includes(`${pkgCache}/uipath.system.roboticsecurity.${cfg.version}.nupkg`), "missing cached nupkg");
+  assert(!outPaths.some((p) => p.includes("/_rels/")), "must not extract nupkg _rels into cache");
+  assert(!outPaths.some((p) => p.includes("[Content_Types]")), "must not extract nupkg metadata into cache");
   assert(outPaths.includes(bundle.nupkgFlatPath), `missing flat nupkg: ${bundle.nupkgFlatPath}`);
   assert(!outPaths.some((p) => p.endsWith("USTAW-FEED-NUGET.cmd")), "manual feed cmd must not exist");
 
@@ -174,13 +181,19 @@ await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
     JSON.stringify(projectJson.dependencies)
   );
 
-  const nugetXml = await out.file(`${prefix}nuget.config`).async("string");
+  const nugetXml = await out.file(`${prefix}NuGet.Config`).async("string");
+  assert(nugetXml.includes("<clear />"), "NuGet.Config must clear inherited feeds");
   assert(nugetXml.includes('globalPackagesFolder" value=".packages"'), "nuget globalPackagesFolder");
   assert(nugetXml.includes(".local/.nupkg"), "nuget local feed");
 
+  const localNugetXml = await out.file(`${prefix}.local/NuGet.Config`).async("string");
+  assert(localNugetXml.includes('value=".nupkg"'), ".local NuGet.Config feed path");
+
   const props = await out.file(`${prefix}Directory.Build.props`).async("string");
   assert(props.includes("RestorePackagesPath"), "MSBuild restore packages path");
-  assert(props.includes(".local/.nupkg"), "MSBuild additional feed");
+  assert(props.includes("RestoreSources"), "MSBuild RestoreSources");
+  assert(props.includes("RestoreConfigFile"), "MSBuild RestoreConfigFile");
+  assert(props.includes(".local/.nupkg"), "MSBuild project feed");
 
   const dll = await out.file(`${pkgCache}/lib/net6.0/UiPath.System.RoboticSecurity.dll`).async("nodebuffer");
   assert(dll.length > 1000, "cached dll too small");
