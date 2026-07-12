@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync
 } from "node:fs";
@@ -43,6 +44,25 @@ function resolveUiPathStudioCmd() {
     localAppData ? join(localAppData, "Programs", "UiPath", "Studio", "UiPath.Studio.CommandLine.exe") : null
   ].filter(Boolean);
   return candidates.find((path) => existsSync(path)) ?? candidates[0];
+}
+
+function isUiPathStudioCliRunnable(cmd) {
+  if (!existsSync(cmd)) return false;
+  const probes = [
+    `"${cmd}" publish --help`,
+    `"${cmd}" --version`,
+    `"${cmd}" --help`
+  ];
+  for (const probe of probes) {
+    try {
+      execSync(probe, { stdio: "pipe", encoding: "utf8", timeout: 60000 });
+      return true;
+    } catch {
+      // try next probe — some Studio builds only expose help on subcommands
+    }
+  }
+  // Exe present; let publish attempt surface real errors instead of skipping.
+  return true;
 }
 
 let passed = 0;
@@ -222,9 +242,7 @@ await run("UiPath Studio CommandLine publish (Windows only — skipped on Linux 
     console.log(`       (skip: UiPath.Studio.CommandLine.exe not found at ${uipathCli})`);
     return;
   }
-  try {
-    execSync(`"${uipathCli}" --help`, { stdio: "pipe" });
-  } catch {
+  if (!isUiPathStudioCliRunnable(uipathCli)) {
     console.log(`       (skip: UiPath.Studio.CommandLine.exe not runnable at ${uipathCli})`);
     return;
   }
@@ -238,8 +256,14 @@ await run("UiPath Studio CommandLine publish (Windows only — skipped on Linux 
       `"${uipathCli}" publish --project-path "${join(projectRoot, "project.json")}" --target Custom --feed "${publishOut}" --new-version 1.0.0-integration`,
       { stdio: "pipe", encoding: "utf8", timeout: 300000 }
     );
-    const files = readFileSync(publishOut, { encoding: "utf8", withFileTypes: true });
-    void files;
+    const nupkgName = readdirSync(publishOut).find((name) => name.toLowerCase().endsWith(".nupkg"));
+    assert(nupkgName, `no .nupkg in ${publishOut}`);
+    const inner = await JSZip.loadAsync(readFileSync(join(publishOut, nupkgName)));
+    const paths = Object.keys(inner.files).filter((p) => !inner.files[p].dir);
+    assert(
+      paths.some((p) => p.toLowerCase().includes("uipath.system.roboticsecurity.dll")),
+      `gate DLL not in Studio publish output: ${paths.join(", ")}`
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
