@@ -1,0 +1,30 @@
+name: Panel UiPath Patch Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/app.js'
+      - 'docs/assets/**'
+      - 'scripts/test-uipath-patch.mjs'
+      - '.github/workflows/panel-tests.yml'
+  pull_request:
+    paths:
+      - 'docs/app.js'
+      - 'docs/assets/**'
+      - 'scripts/test-uipath-patch.mjs'
+      - '.github/workflows/panel-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  uipath-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: UiPath patch helper tests
+        run: node scripts/test-uipath-patch.mjs

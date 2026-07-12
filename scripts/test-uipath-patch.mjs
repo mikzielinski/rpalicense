@@ -1,0 +1,167 @@
+#!/usr/bin/env node
+/**
+ * Tests UiPath project patch helpers from docs/app.js (XAML namespaces, bundle layout).
+ */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import vm from "node:vm";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const appJs = readFileSync(join(root, "docs/app.js"), "utf8");
+const sampleXaml = readFileSync(
+  join(root, "docs/assets/sample-uipath-project/Main.xaml"),
+  "utf8"
+);
+
+function loadPatchHelpers() {
+  const markers = {
+    inject: appJs.indexOf("const OPS_RUNTIME_GATE_ID"),
+    mid1: appJs.indexOf("function injectRefsOnlyIntoXaml(xamlText"),
+    xaml: appJs.indexOf("const XAML_NS_BLOCK_RE"),
+    xamlEnd: appJs.indexOf("function findSequenceInsertIndex(xaml)"),
+    json: appJs.indexOf("function patchProjectJsonContent(projectJson, version)"),
+    jsonEnd: appJs.indexOf("async function patchUiPathProjectAndDownload()")
+  };
+
+  for (const [key, value] of Object.entries(markers)) {
+    if (value === -1) {
+      throw new Error(`Could not locate ${key} marker in docs/app.js`);
+    }
+  }
+
+  const chunks = [
+    appJs.slice(markers.inject, markers.mid1),
+    appJs.slice(markers.xaml, markers.xamlEnd),
+    appJs.slice(markers.json, markers.jsonEnd)
+  ];
+
+  const sandbox = {
+    console,
+    TextEncoder,
+    btoa: (binary) => Buffer.from(binary, "binary").toString("base64")
+  };
+
+  for (const chunk of chunks) {
+    vm.runInNewContext(chunk, sandbox);
+  }
+
+  return {
+    injectTamperResistantGate: sandbox.injectTamperResistantGate,
+    injectEmbeddedGateIntoXaml: sandbox.injectEmbeddedGateIntoXaml,
+    getBundleLayout: sandbox.getBundleLayout,
+    buildProjectNugetConfig: sandbox.buildProjectNugetConfig,
+    buildProjectFeedSetupCmd: sandbox.buildProjectFeedSetupCmd,
+    ensureXamlImports: sandbox.ensureXamlImports,
+    patchProjectJsonContent: sandbox.patchProjectJsonContent
+  };
+}
+
+const {
+  injectTamperResistantGate,
+  injectEmbeddedGateIntoXaml,
+  getBundleLayout,
+  buildProjectNugetConfig,
+  buildProjectFeedSetupCmd,
+  ensureXamlImports,
+  patchProjectJsonContent
+} = loadPatchHelpers();
+
+const NS_BLOCK_RE = /<TextExpression\.NamespacesForImplementation>/g;
+const REF_BLOCK_RE = /<TextExpression\.ReferencesForImplementation>/g;
+
+function countMatches(text, re) {
+  return [...text.matchAll(re)].length;
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function test(name, fn) {
+  try {
+    fn();
+    console.log(`  ok  ${name}`);
+    return true;
+  } catch (error) {
+    console.error(`  FAIL ${name}`);
+    console.error(`       ${error.message}`);
+    return false;
+  }
+}
+
+let passed = 0;
+let failed = 0;
+
+function run(name, fn) {
+  if (test(name, fn)) passed += 1;
+  else failed += 1;
+}
+
+console.log("UiPath patch tests\n");
+
+run("merges duplicate NamespacesForImplementation blocks", () => {
+  const duplicate = sampleXaml.replace(
+    "</TextExpression.NamespacesForImplementation>",
+    "</TextExpression.NamespacesForImplementation>\n" +
+      "  <TextExpression.NamespacesForImplementation>\n" +
+      "    <sco:Collection x:TypeArguments=\"x:String\">\n" +
+      "      <x:String>System.Linq</x:String>\n" +
+      "    </sco:Collection>\n" +
+      "  </TextExpression.NamespacesForImplementation>"
+  );
+  assert(countMatches(duplicate, NS_BLOCK_RE) === 2, "fixture should start with 2 blocks");
+
+  const merged = ensureXamlImports(duplicate, ["UiPath.System.RoboticSecurity"]);
+  assert(countMatches(merged, NS_BLOCK_RE) === 1, `expected 1 block, got ${countMatches(merged, NS_BLOCK_RE)}`);
+  assert(merged.includes("<x:String>System.Linq</x:String>"), "should keep namespaces from both blocks");
+  assert(merged.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "should add required namespace");
+});
+
+run("paranoid inject leaves a single namespace block", () => {
+  const { xaml } = injectTamperResistantGate(sampleXaml, "token-abc-123", "Main.xaml", "paranoid");
+  assert(countMatches(xaml, NS_BLOCK_RE) === 1, `expected 1 NS block, got ${countMatches(xaml, NS_BLOCK_RE)}`);
+  assert(countMatches(xaml, REF_BLOCK_RE) === 1, `expected 1 ref block, got ${countMatches(xaml, REF_BLOCK_RE)}`);
+  assert(xaml.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "missing gate namespace");
+  assert(xaml.includes("<AssemblyReference>UiPath.System.RoboticSecurity</AssemblyReference>"), "missing assembly ref");
+  assert(xaml.includes("Sequence.Variables"), "missing variables section");
+  assert(xaml.includes("FromBase64String"), "paranoid should embed base64 token expression");
+  assert(!xaml.includes("<x:String>System.Text</x:String>"), "should not add redundant System.Text namespace");
+});
+
+run("double inject is idempotent for namespace blocks", () => {
+  const first = injectEmbeddedGateIntoXaml(sampleXaml, "token-1", "_bindingTraceId", "ghost");
+  const second = injectEmbeddedGateIntoXaml(first.xaml, "token-2", "_bindingTraceId", "ghost");
+  assert(countMatches(second.xaml, NS_BLOCK_RE) === 1, "second inject must not duplicate namespaces");
+  assert(countMatches(second.xaml, REF_BLOCK_RE) === 1, "second inject must not duplicate references");
+});
+
+run("paranoid bundle hides cmd under .project and keeps nuget.config at root", () => {
+  const bundle = getBundleLayout("paranoid", "testDRM", "1.0.7");
+  assert(bundle.nugetConfigPath === "testDRM/nuget.config", `nuget.config path: ${bundle.nugetConfigPath}`);
+  assert(bundle.feedSetupCmdPath === "testDRM/.project/USTAW-FEED-NUGET.cmd", bundle.feedSetupCmdPath);
+  assert(bundle.nupkgFlatPath.includes("1.0.7"), "missing flat nupkg path");
+  assert(!bundle.skipPrefixes.some((p) => p.endsWith("USTAW-FEED-NUGET.cmd") && !p.includes(".project")), "cmd should not be at project root");
+});
+
+run("nuget.config points at local feed", () => {
+  const xml = buildProjectNugetConfig(".local/.nupkg");
+  assert(xml.includes('value=".local/.nupkg"'), "feed path missing in nuget.config");
+  assert(xml.includes("OpsRuntimeLocal"), "feed key missing");
+});
+
+run("feed setup cmd resolves package from .project folder", () => {
+  const cmd = buildProjectFeedSetupCmd("1.0.7", ".local/.nupkg");
+  assert(cmd.includes('%~dp0..\\.local\\.nupkg'), "cmd should resolve feed relative to .project");
+  assert(cmd.includes("UiPath.System.RoboticSecurity.1.0.7.nupkg"), "cmd should reference nupkg file name");
+});
+
+run("project.json pins RoboticSecurity version", () => {
+  const json = patchProjectJsonContent({ name: "testDRM", dependencies: {} }, "1.0.7");
+  assert(json.dependencies["UiPath.System.RoboticSecurity"] === "[1.0.7]", JSON.stringify(json.dependencies));
+});
+
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exit(failed ? 1 : 0);
