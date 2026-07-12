@@ -182,6 +182,17 @@ public static class Bootstrapper
         return InitializeAsync(runtimeToken, machineAlias).GetAwaiter().GetResult();
     }
 
+    public static RuntimeProfile InitializeFromBase64(string base64Token, string? machineAlias = null)
+    {
+        if (string.IsNullOrWhiteSpace(base64Token))
+        {
+            throw new InvalidOperationException("boot-0x01");
+        }
+
+        var runtimeToken = Encoding.UTF8.GetString(Convert.FromBase64String(base64Token));
+        return Initialize(runtimeToken, machineAlias);
+    }
+
     public static bool TryInitialize(string runtimeToken, out RuntimeProfile? profile, string? machineAlias = null)
     {
         try

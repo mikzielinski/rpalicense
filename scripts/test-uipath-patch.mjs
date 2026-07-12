@@ -79,11 +79,11 @@ run("paranoid inject keeps assembly ref without duplicate namespace block", () =
   const { xaml } = injectTamperResistantGate(sampleXaml, "token-abc-123", "Main.xaml", "paranoid");
   assert(countMatches(xaml, NS_BLOCK_RE) === 1, `expected 1 NS block, got ${countMatches(xaml, NS_BLOCK_RE)}`);
   assert(countMatches(xaml, REF_BLOCK_RE) === 1, `expected 1 ref block, got ${countMatches(xaml, REF_BLOCK_RE)}`);
-  assert(!xaml.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "FQN expression must not add namespace import");
+  assert(xaml.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "namespace import required for short Bootstrapper call");
   assert(xaml.includes("<AssemblyReference>UiPath.System.RoboticSecurity</AssemblyReference>"), "missing assembly ref");
   assert(xaml.includes("Sequence.Variables"), "missing variables section");
-  assert(xaml.includes("FromBase64String"), "paranoid should embed base64 token expression");
-  assert(xaml.includes("Global.System.Convert.FromBase64String"), "VB must disambiguate System from UiPath.System");
+  assert(xaml.includes("Bootstrapper.InitializeFromBase64"), "paranoid should call InitializeFromBase64");
+  assert(!xaml.includes("UiPath.System.RoboticSecurity.Bootstrapper"), "FQN must not appear in expression");
 });
 
 run("double inject is idempotent for namespace blocks", () => {

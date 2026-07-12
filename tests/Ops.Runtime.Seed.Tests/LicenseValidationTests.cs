@@ -46,6 +46,18 @@ public sealed class LicenseValidationTests : IDisposable
     }
 
     [Fact]
+    public void InitializeFromBase64_DecodesTokenAndValidates()
+    {
+        UseJwt(_manifest.LiveJwt);
+        var encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(_manifest.TokenId));
+
+        var profile = Bootstrapper.InitializeFromBase64(encoded);
+
+        Assert.Equal("boot-ok-remote", Bootstrapper.LastCheck.Code);
+        Assert.Equal(_manifest.TokenId, profile.TokenId);
+    }
+
+    [Fact]
     public void DisabledLicense_BlocksFurtherInit_ReturnsBoot0x12()
     {
         Assert.NotEqual(_manifest.LiveJwt, _manifest.DisabledJwt);

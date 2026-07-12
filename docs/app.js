@@ -2109,10 +2109,10 @@ function tokenToBase64(tokenValue) {
 function buildEmbeddedGateExpression(tokenValue, concealMode) {
   if (concealMode === "paranoid") {
     const b64 = tokenToBase64(tokenValue);
-    return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize(Global.System.Text.Encoding.UTF8.GetString(Global.System.Convert.FromBase64String("${b64}")))]`;
+    return `[Bootstrapper.InitializeFromBase64("${b64}")]`;
   }
   const safeToken = String(tokenValue).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `[UiPath.System.RoboticSecurity.Bootstrapper.Initialize("${safeToken}")]`;
+  return `[Bootstrapper.Initialize("${safeToken}")]`;
 }
 
 function buildEmbeddedGateVariable(tokenValue, varName, concealMode) {
@@ -2130,7 +2130,8 @@ function injectEmbeddedGateIntoXaml(xamlText, tokenValue, varName, concealMode) 
 
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
-  // Fully-qualified expression in Variable Default — only AssemblyReference is required.
+  // Namespace import avoids VB BC30456 on UiPath.System.* fully-qualified paths.
+  xaml = ensureXamlImports(xaml, [OPS_RUNTIME_GATE_NS]);
   xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, true);
 
   const variableXml = buildEmbeddedGateVariable(tokenValue, varName, concealMode);
