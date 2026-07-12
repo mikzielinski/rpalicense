@@ -34,3 +34,6 @@ jobs:
 
       - name: UiPath patch E2E tests
         run: npm run test:uipath:e2e
+
+      - name: UiPath publish integration (dotnet pack + DLL probe)
+        run: npm run test:uipath:integration

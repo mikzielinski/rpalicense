@@ -4,7 +4,9 @@
   "scripts": {
     "test:uipath": "node scripts/test-uipath-patch.mjs",
     "test:uipath:e2e": "node scripts/test-uipath-patch-e2e.mjs",
-    "test:uipath:all": "node scripts/test-uipath-patch.mjs && node scripts/test-uipath-patch-e2e.mjs"
+    "test:uipath:all": "node scripts/test-uipath-patch.mjs && node scripts/test-uipath-patch-e2e.mjs",
+    "test:uipath:integration": "node scripts/test-uipath-publish-integration.mjs",
+    "test:uipath:full": "npm run test:uipath:all && npm run test:uipath:integration"
   },
   "devDependencies": {
     "jszip": "^3.10.1"
