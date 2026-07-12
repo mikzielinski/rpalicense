@@ -3,59 +3,13 @@
  * Tests UiPath project patch helpers from docs/app.js (XAML namespaces, bundle layout).
  */
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
+import { join } from "node:path";
+import { loadUiPathPatchRuntime, repoRoot } from "./lib/uipath-patch-loader.mjs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(root, "docs/app.js"), "utf8");
 const sampleXaml = readFileSync(
-  join(root, "docs/assets/sample-uipath-project/Main.xaml"),
+  join(repoRoot, "docs/assets/sample-uipath-project/Main.xaml"),
   "utf8"
 );
-
-function loadPatchHelpers() {
-  const markers = {
-    inject: appJs.indexOf("const OPS_RUNTIME_GATE_ID"),
-    mid1: appJs.indexOf("function injectRefsOnlyIntoXaml(xamlText"),
-    xaml: appJs.indexOf("const XAML_NS_BLOCK_RE"),
-    xamlEnd: appJs.indexOf("function findSequenceInsertIndex(xaml)"),
-    json: appJs.indexOf("function patchProjectJsonContent(projectJson, version)"),
-    jsonEnd: appJs.indexOf("async function patchUiPathProjectAndDownload()")
-  };
-
-  for (const [key, value] of Object.entries(markers)) {
-    if (value === -1) {
-      throw new Error(`Could not locate ${key} marker in docs/app.js`);
-    }
-  }
-
-  const chunks = [
-    appJs.slice(markers.inject, markers.mid1),
-    appJs.slice(markers.xaml, markers.xamlEnd),
-    appJs.slice(markers.json, markers.jsonEnd)
-  ];
-
-  const sandbox = {
-    console,
-    TextEncoder,
-    btoa: (binary) => Buffer.from(binary, "binary").toString("base64")
-  };
-
-  for (const chunk of chunks) {
-    vm.runInNewContext(chunk, sandbox);
-  }
-
-  return {
-    injectTamperResistantGate: sandbox.injectTamperResistantGate,
-    injectEmbeddedGateIntoXaml: sandbox.injectEmbeddedGateIntoXaml,
-    getBundleLayout: sandbox.getBundleLayout,
-    buildProjectNugetConfig: sandbox.buildProjectNugetConfig,
-    buildProjectFeedSetupCmd: sandbox.buildProjectFeedSetupCmd,
-    ensureXamlImports: sandbox.ensureXamlImports,
-    patchProjectJsonContent: sandbox.patchProjectJsonContent
-  };
-}
 
 const {
   injectTamperResistantGate,
@@ -65,7 +19,7 @@ const {
   buildProjectFeedSetupCmd,
   ensureXamlImports,
   patchProjectJsonContent
-} = loadPatchHelpers();
+} = loadUiPathPatchRuntime();
 
 const NS_BLOCK_RE = /<TextExpression\.NamespacesForImplementation>/g;
 const REF_BLOCK_RE = /<TextExpression\.ReferencesForImplementation>/g;

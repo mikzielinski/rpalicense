@@ -3,6 +3,7 @@ test-fixtures/seed.*.jwt
 test-fixtures/catalog/disabled-raw.json
 reports/
 artifacts/
+node_modules/
 **/bin/
 **/obj/
 OpsRuntime/
