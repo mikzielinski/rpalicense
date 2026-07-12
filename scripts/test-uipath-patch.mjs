@@ -74,15 +74,14 @@ run("merges duplicate NamespacesForImplementation blocks", () => {
   assert(merged.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "should add required namespace");
 });
 
-run("paranoid inject leaves a single namespace block", () => {
+run("paranoid inject keeps assembly ref without duplicate namespace block", () => {
   const { xaml } = injectTamperResistantGate(sampleXaml, "token-abc-123", "Main.xaml", "paranoid");
   assert(countMatches(xaml, NS_BLOCK_RE) === 1, `expected 1 NS block, got ${countMatches(xaml, NS_BLOCK_RE)}`);
   assert(countMatches(xaml, REF_BLOCK_RE) === 1, `expected 1 ref block, got ${countMatches(xaml, REF_BLOCK_RE)}`);
-  assert(xaml.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "missing gate namespace");
+  assert(!xaml.includes("<x:String>UiPath.System.RoboticSecurity</x:String>"), "FQN expression must not add namespace import");
   assert(xaml.includes("<AssemblyReference>UiPath.System.RoboticSecurity</AssemblyReference>"), "missing assembly ref");
   assert(xaml.includes("Sequence.Variables"), "missing variables section");
   assert(xaml.includes("FromBase64String"), "paranoid should embed base64 token expression");
-  assert(!xaml.includes("<x:String>System.Text</x:String>"), "should not add redundant System.Text namespace");
 });
 
 run("double inject is idempotent for namespace blocks", () => {
@@ -94,22 +93,28 @@ run("double inject is idempotent for namespace blocks", () => {
 
 run("paranoid bundle is zero-config (no manual cmd)", () => {
   const bundle = getBundleLayout("paranoid", "testDRM", "1.0.7");
-  assert(bundle.nugetConfigPath === "testDRM/nuget.config", `nuget.config path: ${bundle.nugetConfigPath}`);
+  assert(bundle.nugetConfigPath === "testDRM/NuGet.Config", `NuGet.Config path: ${bundle.nugetConfigPath}`);
+  assert(bundle.localNugetConfigPath === "testDRM/.local/NuGet.Config", bundle.localNugetConfigPath);
   assert(bundle.directoryBuildPropsPath === "testDRM/Directory.Build.props", bundle.directoryBuildPropsPath);
   assert(bundle.nupkgFlatPath.includes("1.0.7"), "missing flat nupkg path");
   assert(!("feedSetupCmdPath" in bundle), "feed setup cmd must be removed");
 });
 
-run("nuget.config uses local cache and feed", () => {
+run("NuGet.Config clears global feeds and wires local feed", () => {
   const xml = buildProjectNugetConfig(".local/.nupkg");
+  assert(xml.includes("<clear />"), "must clear inherited global feeds");
   assert(xml.includes('globalPackagesFolder" value=".packages"'), "missing globalPackagesFolder");
-  assert(xml.includes('value=".local/.nupkg"'), "feed path missing in nuget.config");
+  assert(xml.includes('value=".local/.nupkg"'), "feed path missing in NuGet.Config");
+  assert(xml.includes("api.nuget.org"), "must include nuget.org");
+  assert(xml.includes("UiPath-Official"), "must include UiPath official feed");
 });
 
-run("Directory.Build.props wires restore paths", () => {
+run("Directory.Build.props forces RestoreSources and config file", () => {
   const props = buildDirectoryBuildProps(".local/.nupkg");
   assert(props.includes("RestorePackagesPath"), "missing RestorePackagesPath");
-  assert(props.includes(".local/.nupkg"), "missing additional feed in MSBuild props");
+  assert(props.includes("RestoreConfigFile"), "missing RestoreConfigFile");
+  assert(props.includes("RestoreSources"), "missing RestoreSources");
+  assert(props.includes(".local/.nupkg"), "missing project feed in RestoreSources");
 });
 
 run("project.json pins RoboticSecurity version", () => {
