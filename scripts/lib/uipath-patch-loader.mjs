@@ -15,7 +15,7 @@ export function loadUiPathPatchRuntime(appJsPath = join(root, "docs/app.js")) {
     xamlEnd: appJs.indexOf("function findSequenceInsertIndex(xaml)"),
     parse: appJs.indexOf("function normalizeZipPath(path)"),
     parseEnd: appJs.indexOf("function renderUiPathProjectXamlSelect(xamlFiles"),
-    json: appJs.indexOf("function patchProjectJsonContent(projectJson, version)"),
+    json: appJs.indexOf("function patchProjectJsonContent(projectJson, version"),
     jsonEnd: appJs.indexOf("async function patchUiPathProjectAndDownload()")
   };
 

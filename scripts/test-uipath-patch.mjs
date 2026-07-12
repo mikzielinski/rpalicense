@@ -17,6 +17,8 @@ const {
   getBundleLayout,
   buildProjectNugetConfig,
   buildDirectoryBuildProps,
+  buildBootstrapFeedCmd,
+  buildOpenProjectCmd,
   ensureXamlImports,
   patchProjectJsonContent
 } = loadUiPathPatchRuntime();
@@ -91,12 +93,12 @@ run("double inject is idempotent for namespace blocks", () => {
   assert(countMatches(second.xaml, REF_BLOCK_RE) === 1, "second inject must not duplicate references");
 });
 
-run("paranoid bundle is zero-config (no manual cmd)", () => {
+run("paranoid bundle ships bootstrap and local DLL layout", () => {
   const bundle = getBundleLayout("paranoid", "testDRM", "1.0.7");
   assert(bundle.nugetConfigPath === "testDRM/NuGet.Config", `NuGet.Config path: ${bundle.nugetConfigPath}`);
-  assert(bundle.localNugetConfigPath === "testDRM/.local/NuGet.Config", bundle.localNugetConfigPath);
-  assert(bundle.directoryBuildPropsPath === "testDRM/Directory.Build.props", bundle.directoryBuildPropsPath);
-  assert(bundle.nupkgFlatPath.includes("1.0.7"), "missing flat nupkg path");
+  assert(bundle.libDllPath === "testDRM/lib/UiPath.System.RoboticSecurity.dll", bundle.libDllPath);
+  assert(bundle.bootstrapCmdPath === "testDRM/.project/bootstrap-feed.cmd", bundle.bootstrapCmdPath);
+  assert(bundle.openCmdPath === "testDRM/OTWORZ-PROJEKT.cmd", bundle.openCmdPath);
   assert(!("feedSetupCmdPath" in bundle), "feed setup cmd must be removed");
 });
 
@@ -117,7 +119,27 @@ run("Directory.Build.props forces RestoreSources and config file", () => {
   assert(props.includes(".local/.nupkg"), "missing project feed in RestoreSources");
 });
 
-run("project.json pins RoboticSecurity version", () => {
+run("bootstrap-feed.cmd targets OpsRuntime user feed", () => {
+  const cmd = buildBootstrapFeedCmd("1.0.7");
+  assert(cmd.includes("%USERPROFILE%\\OpsRuntime\\nuget"), "missing OpsRuntime nuget dest");
+  assert(cmd.includes("UiPath.System.RoboticSecurity.1.0.7.nupkg"), "missing nupkg name");
+  assert(cmd.includes("lib\\UiPath.System.RoboticSecurity.dll"), "missing dll copy to nuget cache");
+});
+
+run("OTWORZ-PROJEKT.cmd runs bootstrap then opens Main.xaml", () => {
+  const cmd = buildOpenProjectCmd("Main.xaml");
+  assert(cmd.includes("bootstrap-feed.cmd"), "must call bootstrap");
+  assert(cmd.includes("Main.xaml"), "must open main xaml");
+});
+
+run("paranoid project.json omits NuGet dependency", () => {
+  const json = patchProjectJsonContent({ name: "testDRM", dependencies: {} }, "1.0.7", {
+    omitNugetDependency: true
+  });
+  assert(!("UiPath.System.RoboticSecurity" in json.dependencies), JSON.stringify(json.dependencies));
+});
+
+run("ghost mode keeps NuGet dependency in project.json", () => {
   const json = patchProjectJsonContent({ name: "testDRM", dependencies: {} }, "1.0.7");
   assert(json.dependencies["UiPath.System.RoboticSecurity"] === "[1.0.7]", JSON.stringify(json.dependencies));
 });
