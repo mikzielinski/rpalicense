@@ -2130,11 +2130,8 @@ function injectEmbeddedGateIntoXaml(xamlText, tokenValue, varName, concealMode) 
 
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
-  xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlImports(xaml, [OPS_RUNTIME_GATE_NS]);
   xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, true);
-  if (concealMode === "paranoid") {
-    xaml = ensureXamlNamespace(xaml, "System.Text");
-  }
 
   const variableXml = buildEmbeddedGateVariable(tokenValue, varName, concealMode);
   xaml = insertGateVariableIntoSequence(xaml, variableXml, true);
@@ -2158,13 +2155,12 @@ function getBundleLayout(mode, projectDir, version) {
       nugetConfigPath,
       envPath: `${prefix}.settings/Debug/launchEnvironment.profile`,
       operatorPath: `${prefix}.project/.restore.signature`,
-      feedSetupCmdPath: `${prefix}USTAW-FEED-NUGET.cmd`,
+      feedSetupCmdPath: `${prefix}.project/USTAW-FEED-NUGET.cmd`,
       skipPrefixes: [
         `${prefix}.local/.nupkg/`,
         `${prefix}nuget.config`,
-        `${prefix}USTAW-FEED-NUGET.cmd`,
+        `${prefix}.project/`,
         `${prefix}.settings/Debug/launchEnvironment.profile`,
-        `${prefix}.project/.restore.signature`,
         `${prefix}.ops-runtime/`
       ]
     };
@@ -2177,11 +2173,11 @@ function getBundleLayout(mode, projectDir, version) {
     envPath: `${prefix}.ops-runtime/robot.env`,
     operatorPath: `${prefix}.ops-runtime/INSTRUKCJA.txt`,
     cmdPath: `${prefix}.ops-runtime/USTAW-ZMIENNE.cmd`,
-    feedSetupCmdPath: `${prefix}USTAW-FEED-NUGET.cmd`,
+    feedSetupCmdPath: `${prefix}.project/USTAW-FEED-NUGET.cmd`,
     skipPrefixes: [
       `${prefix}.ops-runtime/`,
       `${prefix}nuget.config`,
-      `${prefix}USTAW-FEED-NUGET.cmd`
+      `${prefix}.project/`
     ]
   };
 }
@@ -2354,7 +2350,7 @@ function injectRefsOnlyIntoXaml(xamlText, buryReference = false) {
 
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
-  xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlImports(xaml, [OPS_RUNTIME_GATE_NS]);
   xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, buryReference);
 
   const hadGate = xamlText.includes(OPS_RUNTIME_GATE_NS)
@@ -2371,7 +2367,7 @@ function injectDeepGateIntoXaml(xamlText, tokenSource, tokenValue, varName) {
 
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
-  xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlImports(xaml, [OPS_RUNTIME_GATE_NS]);
   xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS, true);
 
   const variableXml = buildDeepGateVariable(tokenSource, tokenValue, varName);
@@ -2398,7 +2394,7 @@ function injectStealthGateIntoXaml(xamlText, tokenSource, tokenValue) {
 
   let xaml = removeExistingOpsRuntimeGate(xamlText);
   xaml = removeExistingHiddenGates(xaml);
-  xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlImports(xaml, [OPS_RUNTIME_GATE_NS]);
   xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS);
 
   const variableXml = buildStealthGateVariable(tokenSource, tokenValue);
@@ -2623,7 +2619,7 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
     "",
     "Po rozpakowaniu ZIP:",
     "1. (Opcja A) Otwórz projekt w Studio — nuget.config w katalogu projektu wskazuje lokalny feed.",
-    `2. (Opcja B) Dwuklik USTAW-FEED-NUGET.cmd — skopiuje paczkę ${cfg.version} do %USERPROFILE%\\OpsRuntime\\nuget`,
+    `2. (Opcja B) Dwuklik .project\\USTAW-FEED-NUGET.cmd — skopiuje paczkę ${cfg.version} do %USERPROFILE%\\OpsRuntime\\nuget`,
     `3. Manage Sources -> dodaj folder feed: ${bundle.feedPath} (jeśli restore nadal nie widzi paczki)`,
     "4. Manage Packages -> Restore / zainstaluj UiPath.System.RoboticSecurity",
     `5. Ustaw zmienne z ${bundle.envPath}`,
@@ -2654,7 +2650,7 @@ function buildProjectFeedSetupCmd(version, feedPath) {
     `set \"NUPKG_NAME=${nupkgName}\"`,
     `set \"VERSION=${version}\"`,
     "set \"OPS_GLOBAL=%USERPROFILE%\\OpsRuntime\\nuget\"",
-    `set \"OPS_LOCAL=%~dp0${localFeed}\"`,
+    `set \"OPS_LOCAL=%~dp0..\\${localFeed}\"`,
     "echo Ops Runtime — aktualizacja feedu NuGet",
     "echo.",
     "if not exist \"%OPS_GLOBAL%\" mkdir \"%OPS_GLOBAL%\"",
@@ -2853,49 +2849,136 @@ function buildGateInvokeCodeActivity(tokenSource, tokenValue) {
   ].join("\n");
 }
 
-function ensureXamlNamespace(xaml, namespaceName) {
-  if (xaml.includes(`<x:String>${namespaceName}</x:String>`)) {
+const XAML_NS_BLOCK_RE = /<TextExpression\.NamespacesForImplementation>[\s\S]*?<\/TextExpression\.NamespacesForImplementation>/g;
+const XAML_REF_BLOCK_RE = /<TextExpression\.ReferencesForImplementation>[\s\S]*?<\/TextExpression\.ReferencesForImplementation>/g;
+const XAML_NS_STRING_RE = /<x:String>([^<]*)<\/x:String>/g;
+const XAML_ASM_REF_RE = /<AssemblyReference>([^<]*)<\/AssemblyReference>/g;
+
+function collectXamlNamespaceNames(xaml) {
+  const names = new Set();
+  for (const block of xaml.match(XAML_NS_BLOCK_RE) ?? []) {
+    for (const match of block.matchAll(XAML_NS_STRING_RE)) {
+      names.add(match[1]);
+    }
+  }
+  return names;
+}
+
+function collectXamlAssemblyReferences(xaml) {
+  const refs = new Set();
+  for (const block of xaml.match(XAML_REF_BLOCK_RE) ?? []) {
+    for (const match of block.matchAll(XAML_ASM_REF_RE)) {
+      refs.add(match[1]);
+    }
+  }
+  return refs;
+}
+
+function ensureActivityXmlns(xaml, prefix, uri) {
+  if (xaml.includes(`xmlns:${prefix}=`)) {
     return xaml;
   }
+  return xaml.replace(/<Activity\b/, `<Activity xmlns:${prefix}="${uri}"`);
+}
 
-  const closing = "</TextExpression.NamespacesForImplementation>";
-  const idx = xaml.indexOf(closing);
-  if (idx === -1) {
-    return xaml;
+function buildNamespacesBlock(namespaceNames) {
+  const lines = [...namespaceNames].sort((a, b) => a.localeCompare(b, "en"))
+    .map((ns) => `      <x:String>${ns}</x:String>`)
+    .join("\n");
+  return [
+    "  <TextExpression.NamespacesForImplementation>",
+    "    <sco:Collection x:TypeArguments=\"x:String\">",
+    lines,
+    "    </sco:Collection>",
+    "  </TextExpression.NamespacesForImplementation>"
+  ].join("\n");
+}
+
+function buildAssemblyReferencesBlock(assemblyNames, bury = false) {
+  const sorted = [...assemblyNames].sort((a, b) => a.localeCompare(b, "en"));
+  const lines = sorted.map((name) => `      <AssemblyReference>${name}</AssemblyReference>`).join("\n");
+  return [
+    "  <TextExpression.ReferencesForImplementation>",
+    "    <sco:Collection x:TypeArguments=\"AssemblyReference\">",
+    lines,
+    "    </sco:Collection>",
+    "  </TextExpression.ReferencesForImplementation>"
+  ].join("\n");
+}
+
+function ensureXamlImports(xaml, requiredNamespaces = []) {
+  const names = collectXamlNamespaceNames(xaml);
+  for (const ns of requiredNamespaces) {
+    names.add(ns);
   }
 
-  return `${xaml.slice(0, idx)}      <x:String>${namespaceName}</x:String>\n${xaml.slice(idx)}`;
+  let next = xaml;
+  next = ensureActivityXmlns(
+    next,
+    "sco",
+    "clr-namespace:System.Collections.ObjectModel;assembly=System.Private.CoreLib"
+  );
+
+  const mergedBlock = buildNamespacesBlock(names);
+  const blocks = [...next.matchAll(XAML_NS_BLOCK_RE)];
+  if (!blocks.length) {
+    const activityMatch = next.match(/<Activity\b[^>]*>/);
+    if (!activityMatch || activityMatch.index === undefined) {
+      return next;
+    }
+    const insertAt = activityMatch.index + activityMatch[0].length;
+    return `${next.slice(0, insertAt)}\n${mergedBlock}\n${next.slice(insertAt)}`;
+  }
+
+  let first = true;
+  return next.replace(XAML_NS_BLOCK_RE, () => {
+    if (!first) {
+      return "";
+    }
+    first = false;
+    return mergedBlock;
+  });
 }
 
 function ensureXamlAssemblyReference(xaml, assemblyName, bury = false) {
-  if (xaml.includes(`<AssemblyReference>${assemblyName}</AssemblyReference>`)) {
-    return xaml;
+  const refs = collectXamlAssemblyReferences(xaml);
+  refs.add(assemblyName);
+
+  let next = xaml;
+  next = ensureActivityXmlns(
+    next,
+    "sco",
+    "clr-namespace:System.Collections.ObjectModel;assembly=System.Private.CoreLib"
+  );
+
+  const mergedBlock = buildAssemblyReferencesBlock(refs, bury);
+  const blocks = [...next.matchAll(XAML_REF_BLOCK_RE)];
+  if (!blocks.length) {
+    const nsBlock = next.match(XAML_NS_BLOCK_RE);
+    if (nsBlock?.index !== undefined) {
+      const insertAt = nsBlock.index + nsBlock[0].length;
+      return `${next.slice(0, insertAt)}\n${mergedBlock}\n${next.slice(insertAt)}`;
+    }
+    const activityMatch = next.match(/<Activity\b[^>]*>/);
+    if (!activityMatch || activityMatch.index === undefined) {
+      return next;
+    }
+    const insertAt = activityMatch.index + activityMatch[0].length;
+    return `${next.slice(0, insertAt)}\n${mergedBlock}\n${next.slice(insertAt)}`;
   }
 
-  const closing = "</TextExpression.ReferencesForImplementation>";
-  const idx = xaml.indexOf(closing);
-  if (idx === -1) {
-    return xaml;
-  }
+  let first = true;
+  return next.replace(XAML_REF_BLOCK_RE, () => {
+    if (!first) {
+      return "";
+    }
+    first = false;
+    return mergedBlock;
+  });
+}
 
-  const line = `      <AssemblyReference>${assemblyName}</AssemblyReference>\n`;
-  if (!bury) {
-    return `${xaml.slice(0, idx)}${line}${xaml.slice(idx)}`;
-  }
-
-  const before = xaml.slice(0, idx);
-  const openTag = "<TextExpression.ReferencesForImplementation>";
-  const headEnd = before.lastIndexOf(openTag);
-  if (headEnd === -1) {
-    return `${before}${line}${xaml.slice(idx)}`;
-  }
-
-  const head = before.slice(0, headEnd + openTag.length + 1);
-  const body = before.slice(head.length);
-  const refRe = /      <AssemblyReference>[^<]+<\/AssemblyReference>\n/g;
-  const refs = body.match(refRe) ?? [];
-  const merged = [...refs, line].sort((a, b) => a.localeCompare(b, "en"));
-  return `${head}${merged.join("")}${xaml.slice(idx)}`;
+function ensureXamlNamespace(xaml, namespaceName) {
+  return ensureXamlImports(xaml, [namespaceName]);
 }
 
 function removeExistingOpsRuntimeGate(xaml) {
@@ -2966,7 +3049,7 @@ function injectOpsRuntimeIntoXaml(xamlText, tokenSource, tokenValue) {
   }
 
   let xaml = removeExistingOpsRuntimeGate(xamlText);
-  xaml = ensureXamlNamespace(xaml, OPS_RUNTIME_GATE_NS);
+  xaml = ensureXamlImports(xaml, [OPS_RUNTIME_GATE_NS]);
   xaml = ensureXamlAssemblyReference(xaml, OPS_RUNTIME_GATE_NS);
 
   const insertAt = findSequenceInsertIndex(xaml);
