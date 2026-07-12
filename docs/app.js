@@ -2159,6 +2159,10 @@ function getBundleLayout(mode, projectDir, version) {
       nugetConfigPath,
       localNugetConfigPath: `${prefix}.local/NuGet.Config`,
       directoryBuildPropsPath: `${prefix}Directory.Build.props`,
+      libDllPath: `${prefix}lib/UiPath.System.RoboticSecurity.dll`,
+      libXmlPath: `${prefix}lib/UiPath.System.RoboticSecurity.xml`,
+      bootstrapCmdPath: `${prefix}.project/bootstrap-feed.cmd`,
+      openCmdPath: `${prefix}OTWORZ-PROJEKT.cmd`,
       envPath: `${prefix}.settings/Debug/launchEnvironment.profile`,
       operatorPath: `${prefix}.project/.restore.signature`,
       skipPrefixes: [
@@ -2545,10 +2549,14 @@ async function onUiPathProjectZipSelected() {
   }
 }
 
-function patchProjectJsonContent(projectJson, version) {
+function patchProjectJsonContent(projectJson, version, options = {}) {
   const next = { ...projectJson };
   next.dependencies = { ...(next.dependencies ?? {}) };
-  next.dependencies["UiPath.System.RoboticSecurity"] = `[${version}]`;
+  if (!options.omitNugetDependency) {
+    next.dependencies["UiPath.System.RoboticSecurity"] = `[${version}]`;
+  } else {
+    delete next.dependencies["UiPath.System.RoboticSecurity"];
+  }
   return next;
 }
 
@@ -2580,11 +2588,14 @@ function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
     packageVersion: version,
     localFeed: feedPath,
     packagesCache: ".packages",
+    bundledAssembly: "lib/UiPath.System.RoboticSecurity.dll",
     compileHooks: entryList,
-    tamper: "Removing the package breaks entry workflow compilation",
+    tamper: "Removing lib/UiPath.System.RoboticSecurity.dll breaks entry workflow compilation",
     tokenEmbedded: true,
     expertHints: [
-      "dependencies in project.json",
+      "lib/UiPath.System.RoboticSecurity.dll (no NuGet dependency — Studio ignores project feeds)",
+      ".project/bootstrap-feed.cmd copies nupkg to %USERPROFILE%\\OpsRuntime\\nuget",
+      "OTWORZ-PROJEKT.cmd — bootstrap + open Main.xaml when NU1101 persists",
       "hidden Variable Default in entry XAML (token embedded, not in env)",
       "ModuleInitializer in UiPath.System.RoboticSecurity.dll",
       "OPS_SEED_* environment variables only (no FLOW_RUNTIME_TOKEN)"
@@ -2625,12 +2636,13 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
     `Tryb ukrycia: ${mode}`,
     "",
     "Co zrobił panel:",
-    `- project.json: dodano UiPath.System.RoboticSecurity [${cfg.version}]`,
-    `- ${bundle.feedPath}: lokalny feed z paczką`,
+    "- lib/UiPath.System.RoboticSecurity.dll — biblioteka gate (bez wpisu NuGet w project.json)",
+    `- ${bundle.feedPath}: kopia nupkg do bootstrapu feedu maszynowego`,
     ...(modeLines[mode] ?? modeLines.deep),
     "",
     "Po rozpakowaniu ZIP:",
-    "1. Dwuklik Main.xaml (lub otwórz folder w UiPath Studio) — restore NuGet jest gotowy z paczki.",
+    "1. Dwuklik OTWORZ-PROJEKT.cmd (bootstrap feed + otwarcie Main.xaml) — pierwsze otwarcie.",
+    "2. Kolejne razy: dwuklik Main.xaml (Studio nie szuka paczki NuGet — tylko lib/*.dll).",
     `2. Zmienne OPS_SEED_* są w ${bundle.envPath} (Studio ładuje profil Debug przy uruchomieniu).`,
     "3. Opublikuj / uruchom proces"
   ].join("\r\n");
@@ -2695,6 +2707,46 @@ async function writeGlobalPackagesCache(outZip, prefix, nupkgBuf, version) {
   }
 }
 
+async function writeBundledGateAssembly(outZip, prefix, nupkgBuf) {
+  const inner = await JSZip.loadAsync(nupkgBuf);
+  for (const [path, entry] of Object.entries(inner.files)) {
+    if (entry.dir) continue;
+    if (!path.startsWith("lib/")) continue;
+    const fileName = path.slice("lib/".length).replace(/^net6\.0\//, "");
+    outZip.file(`${prefix}lib/${fileName}`, await entry.async("uint8array"));
+  }
+}
+
+function buildBootstrapFeedCmd(version) {
+  const nupkgName = `UiPath.System.RoboticSecurity.${version}.nupkg`;
+  return [
+    "@echo off",
+    "setlocal EnableExtensions",
+    "rem Ops Runtime — kopiuje paczke do feedu, ktory Studio juz ma w NuGet.config (%USERPROFILE%\\OpsRuntime\\nuget)",
+    "set \"ROOT=%~dp0..\"",
+    `set \"NUPKG=${nupkgName}\"`,
+    "set \"DEST=%USERPROFILE%\\OpsRuntime\\nuget\"",
+    `set \"CACHE=%USERPROFILE%\\.nuget\\packages\\uipath.system.roboticsecurity\\${version}\\lib\\net6.0\"`,
+    "mkdir \"%DEST%\" 2>nul",
+    "mkdir \"%CACHE%\" 2>nul",
+    "if exist \"%ROOT%\\.local\\.nupkg\\%NUPKG%\" copy /Y \"%ROOT%\\.local\\.nupkg\\%NUPKG%\" \"%DEST%\\\" >nul",
+    "if exist \"%ROOT%\\lib\\UiPath.System.RoboticSecurity.dll\" copy /Y \"%ROOT%\\lib\\UiPath.System.RoboticSecurity.dll\" \"%CACHE%\\\" >nul",
+    "exit /b 0"
+  ].join("\r\n");
+}
+
+function buildOpenProjectCmd(mainRelPath) {
+  const main = mainRelPath.replace(/\//g, "\\");
+  return [
+    "@echo off",
+    "chcp 65001 >nul",
+    "cd /d \"%~dp0\"",
+    "call \"%~dp0.project\\bootstrap-feed.cmd\"",
+    `start \"\" \"%~dp0${main}\"`,
+    ""
+  ].join("\r\n");
+}
+
 function buildProjectSetEnvCmd(cfg) {
   return [
     "@echo off",
@@ -2737,7 +2789,9 @@ async function patchUiPathProjectAndDownload() {
   try {
     const { tokenValue } = readProjectPatchToken();
     const { zip, projectJsonPath, projectDir, projectJson, fileName, xamlFiles } = uipathProjectState;
-    const patchedJson = patchProjectJsonContent(projectJson, cfg.version);
+    const patchedJson = patchProjectJsonContent(projectJson, cfg.version, {
+      omitNugetDependency: mode === "paranoid"
+    });
     const xamlEntry = xamlFiles.find((f) => f.fullPath === selectedXaml);
     const entryFiles = getEntryPointXamlFiles(xamlFiles, projectJson);
     const xamlRelPath = isGhostLikeMode(mode)
@@ -2816,12 +2870,19 @@ async function patchUiPathProjectAndDownload() {
       outZip.file(bundle.nupkgFlatPath, nupkgBuf);
     }
     await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
+    await writeBundledGateAssembly(outZip, prefix, nupkgBuf);
     outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
     outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
     if (bundle.localNugetConfigPath) {
       outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
     }
     outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
+    if (bundle.bootstrapCmdPath) {
+      outZip.file(bundle.bootstrapCmdPath, buildBootstrapFeedCmd(cfg.version));
+    }
+    if (bundle.openCmdPath) {
+      outZip.file(bundle.openCmdPath, buildOpenProjectCmd(projectJson.main ?? "Main.xaml"));
+    }
     outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
     if (bundle.cmdPath) {
       outZip.file(bundle.cmdPath, buildProjectSetEnvCmd(cfg));

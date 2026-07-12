@@ -24,8 +24,11 @@ const {
   buildProjectNugetConfig,
   buildLocalNugetConfig,
   buildDirectoryBuildProps,
+  buildBootstrapFeedCmd,
+  buildOpenProjectCmd,
   buildProjectSetupReadme,
   writeGlobalPackagesCache,
+  writeBundledGateAssembly,
   zipFolderPrefix
 } = rt;
 
@@ -64,7 +67,9 @@ async function patchUiPathProjectZip(zipBuffer, { mode, tokenValue }) {
   const xamlFiles = listProjectXamlFiles(paths, projectDir);
   assert(xamlFiles.length > 0, "missing xaml files");
 
-  const patchedJson = patchProjectJsonContent(projectJson, cfg.version);
+  const patchedJson = patchProjectJsonContent(projectJson, cfg.version, {
+    omitNugetDependency: mode === "paranoid"
+  });
   const entryFiles = getEntryPointXamlFiles(xamlFiles, projectJson);
   const bundle = getBundleLayout(mode, projectDir, cfg.version);
   const projectSeed = projectJson.name ?? projectDir ?? "sample";
@@ -113,12 +118,19 @@ async function patchUiPathProjectZip(zipBuffer, { mode, tokenValue }) {
   outZip.file(bundle.nupkgPath, nupkgBuf);
   if (bundle.nupkgFlatPath) outZip.file(bundle.nupkgFlatPath, nupkgBuf);
   await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
+  await writeBundledGateAssembly(outZip, prefix, nupkgBuf);
   outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
   outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
   if (bundle.localNugetConfigPath) {
     outZip.file(bundle.localNugetConfigPath, buildLocalNugetConfig());
   }
   outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
+  if (bundle.bootstrapCmdPath) {
+    outZip.file(bundle.bootstrapCmdPath, buildBootstrapFeedCmd(cfg.version));
+  }
+  if (bundle.openCmdPath) {
+    outZip.file(bundle.openCmdPath, buildOpenProjectCmd(projectJson.main ?? "Main.xaml"));
+  }
   outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
 
   return {
@@ -167,6 +179,9 @@ await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
   assert(outPaths.includes(`${prefix}NuGet.Config`), "NuGet.Config missing at project root");
   assert(outPaths.includes(`${prefix}.local/NuGet.Config`), ".local/NuGet.Config missing");
   assert(outPaths.includes(`${prefix}Directory.Build.props`), "Directory.Build.props missing");
+  assert(outPaths.includes(`${prefix}lib/UiPath.System.RoboticSecurity.dll`), "bundled gate DLL missing");
+  assert(outPaths.includes(`${prefix}.project/bootstrap-feed.cmd`), "bootstrap-feed.cmd missing");
+  assert(outPaths.includes(`${prefix}OTWORZ-PROJEKT.cmd`), "OTWORZ-PROJEKT.cmd missing");
   assert(outPaths.includes(`${pkgCache}/lib/net6.0/UiPath.System.RoboticSecurity.dll`), "missing pre-cached dll");
   assert(outPaths.includes(`${pkgCache}/uipath.system.roboticsecurity.${cfg.version}.nupkg`), "missing cached nupkg");
   assert(!outPaths.some((p) => p.includes("/_rels/")), "must not extract nupkg _rels into cache");
@@ -177,8 +192,8 @@ await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
   const projectJson = JSON.parse(await out.file(projectJsonPath).async("string"));
   assert(projectJson.main === projectJsonBefore.main, "main entry must stay Main.xaml");
   assert(
-    projectJson.dependencies["UiPath.System.RoboticSecurity"] === `[${cfg.version}]`,
-    JSON.stringify(projectJson.dependencies)
+    !("UiPath.System.RoboticSecurity" in (projectJson.dependencies ?? {})),
+    "paranoid must not add NuGet dependency — Studio ignores project feeds"
   );
 
   const nugetXml = await out.file(`${prefix}NuGet.Config`).async("string");
