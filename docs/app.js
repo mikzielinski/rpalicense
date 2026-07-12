@@ -2593,6 +2593,12 @@ function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
     compileHooks: entryList,
     tamper: "Removing lib/UiPath.System.RoboticSecurity.dll breaks entry workflow compilation",
     tokenEmbedded: true,
+    publishFlow: [
+      "Studio: otwórz projekt (Main.xaml)",
+      "Design → Validate (opcjonalnie)",
+      "Design → Publish → Orchestrator Tenant Feed lub Personal Workspace",
+      "Robot: pobiera .nupkg z Orchestrator — lib/DLL w paczce, bez .cmd"
+    ],
     expertHints: [
       "no UiPath.System.RoboticSecurity in project.json — Studio/Robot skip NuGet restore (no NU1101)",
       "lib/UiPath.System.RoboticSecurity.dll — compile in Studio + runtime after publish to Orchestrator",
@@ -2642,11 +2648,12 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
     `- ${bundle.feedPath}: kopia nupkg (archiwum / reinstalacja)`,
     ...(modeLines[mode] ?? modeLines.deep),
     "",
-    "Po rozpakowaniu ZIP:",
-    "1. Dwuklik Main.xaml — otwórz w Studio, skompiluj, Publish do Orchestrator.",
-    "2. Robot pobiera proces z Orchestrator — DLL jest w paczce, bez .cmd i bez NuGet restore.",
-    `2. Zmienne OPS_SEED_* są w ${bundle.envPath} (Studio ładuje profil Debug przy uruchomieniu).`,
-    "3. Opublikuj / uruchom proces"
+    "Po rozpakowaniu ZIP (flow zgodny z UiPath Publish):",
+    "1. Dwuklik Main.xaml — otwórz projekt w Studio.",
+    "2. Design → Validate — sprawdź błędy (opcjonalnie).",
+    "3. Design → Publish — wybierz Orchestrator Tenant Feed lub Personal Workspace, kliknij Publish.",
+    "4. Robot pobiera proces z Orchestrator — lib/UiPath.System.RoboticSecurity.dll jest w .nupkg (bez .cmd, bez NuGet restore gate).",
+    `5. Zmienne OPS_SEED_*: ${bundle.envPath} (profil Debug Studio); na robocie produkcyjnym ustaw w env maszyny lub Orchestrator Assets.`
   ].join("\r\n");
 }
 
