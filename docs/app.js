@@ -2153,12 +2153,14 @@ function getBundleLayout(mode, projectDir, version) {
       nupkgPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity/${version}/UiPath.System.RoboticSecurity.${version}.nupkg`,
       nupkgFlatPath: `${prefix}.local/.nupkg/UiPath.System.RoboticSecurity.${version}.nupkg`,
       nugetConfigPath,
+      directoryBuildPropsPath: `${prefix}Directory.Build.props`,
       envPath: `${prefix}.settings/Debug/launchEnvironment.profile`,
       operatorPath: `${prefix}.project/.restore.signature`,
-      feedSetupCmdPath: `${prefix}.project/USTAW-FEED-NUGET.cmd`,
       skipPrefixes: [
         `${prefix}.local/.nupkg/`,
+        `${prefix}.packages/`,
         `${prefix}nuget.config`,
+        `${prefix}Directory.Build.props`,
         `${prefix}.project/`,
         `${prefix}.settings/Debug/launchEnvironment.profile`,
         `${prefix}.ops-runtime/`
@@ -2170,13 +2172,15 @@ function getBundleLayout(mode, projectDir, version) {
     feedPath: ".ops-runtime/nuget",
     nupkgPath: `${prefix}.ops-runtime/nuget/UiPath.System.RoboticSecurity.${version}.nupkg`,
     nugetConfigPath,
+    directoryBuildPropsPath: `${prefix}Directory.Build.props`,
     envPath: `${prefix}.ops-runtime/robot.env`,
     operatorPath: `${prefix}.ops-runtime/INSTRUKCJA.txt`,
     cmdPath: `${prefix}.ops-runtime/USTAW-ZMIENNE.cmd`,
-    feedSetupCmdPath: `${prefix}.project/USTAW-FEED-NUGET.cmd`,
     skipPrefixes: [
       `${prefix}.ops-runtime/`,
+      `${prefix}.packages/`,
       `${prefix}nuget.config`,
+      `${prefix}Directory.Build.props`,
       `${prefix}.project/`
     ]
   };
@@ -2567,7 +2571,7 @@ function buildParanoidOperatorSignature(cfg, version, feedPath, entryList) {
     packageId: "UiPath.System.RoboticSecurity",
     packageVersion: version,
     localFeed: feedPath,
-    envProfile: ".settings/Debug/launchEnvironment.profile",
+    packagesCache: ".packages",
     compileHooks: entryList,
     tamper: "Removing the package breaks entry workflow compilation",
     tokenEmbedded: true,
@@ -2618,20 +2622,20 @@ function buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle) {
     ...(modeLines[mode] ?? modeLines.deep),
     "",
     "Po rozpakowaniu ZIP:",
-    "1. (Opcja A) Otwórz projekt w Studio — nuget.config w katalogu projektu wskazuje lokalny feed.",
-    `2. (Opcja B) Dwuklik .project\\USTAW-FEED-NUGET.cmd — skopiuje paczkę ${cfg.version} do %USERPROFILE%\\OpsRuntime\\nuget`,
-    `3. Manage Sources -> dodaj folder feed: ${bundle.feedPath} (jeśli restore nadal nie widzi paczki)`,
-    "4. Manage Packages -> Restore / zainstaluj UiPath.System.RoboticSecurity",
-    `5. Ustaw zmienne z ${bundle.envPath}`,
-    "6. Opublikuj / uruchom proces"
+    "1. Dwuklik Main.xaml (lub otwórz folder w UiPath Studio) — restore NuGet jest gotowy z paczki.",
+    `2. Zmienne OPS_SEED_* są w ${bundle.envPath} (Studio ładuje profil Debug przy uruchomieniu).`,
+    "3. Opublikuj / uruchom proces"
   ].join("\r\n");
 }
 
 function buildProjectNugetConfig(feedPath) {
   return [
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-    "<!-- Ops Runtime — lokalny feed (obok project.json) dla UiPath.System.RoboticSecurity -->",
+    "<!-- Ops Runtime — lokalny cache i feed (restore przy otwarciu projektu) -->",
     "<configuration>",
+    "  <config>",
+    "    <add key=\"globalPackagesFolder\" value=\".packages\" />",
+    "  </config>",
     "  <packageSources>",
     `    <add key="OpsRuntimeLocal" value="${feedPath}" />`,
     "  </packageSources>",
@@ -2640,36 +2644,33 @@ function buildProjectNugetConfig(feedPath) {
   ].join("\n");
 }
 
-function buildProjectFeedSetupCmd(version, feedPath) {
-  const nupkgName = `UiPath.System.RoboticSecurity.${version}.nupkg`;
-  const localFeed = feedPath.replace(/\//g, "\\");
+function buildDirectoryBuildProps(feedPath) {
+  const feed = feedPath.replace(/\\/g, "/");
   return [
-    "@echo off",
-    "chcp 65001 >nul",
-    "setlocal",
-    `set \"NUPKG_NAME=${nupkgName}\"`,
-    `set \"VERSION=${version}\"`,
-    "set \"OPS_GLOBAL=%USERPROFILE%\\OpsRuntime\\nuget\"",
-    `set \"OPS_LOCAL=%~dp0..\\${localFeed}\"`,
-    "echo Ops Runtime — aktualizacja feedu NuGet",
-    "echo.",
-    "if not exist \"%OPS_GLOBAL%\" mkdir \"%OPS_GLOBAL%\"",
-    `if exist \"%OPS_LOCAL%\\%NUPKG_NAME%\" (`,
-    "  copy /Y \"%OPS_LOCAL%\\%NUPKG_NAME%\" \"%OPS_GLOBAL%\\\" >nul",
-    "  echo Skopiowano %%NUPKG_NAME%% do %%OPS_GLOBAL%%",
-    ") else if exist \"%OPS_LOCAL%\\UiPath.System.RoboticSecurity\\%VERSION%\\%NUPKG_NAME%\" (",
-    "  copy /Y \"%OPS_LOCAL%\\UiPath.System.RoboticSecurity\\%VERSION%\\%NUPKG_NAME%\" \"%OPS_GLOBAL%\\\" >nul",
-    "  echo Skopiowano %%NUPKG_NAME%% do %%OPS_GLOBAL%%",
-    ") else (",
-    "  echo BLAD: Brak %%NUPKG_NAME%% w %%OPS_LOCAL%%",
-    "  pause",
-    "  exit /b 1",
-    ")",
-    "echo.",
-    "echo W UiPath Studio: Manage Sources -^> OpsRuntime Local -^> %USERPROFILE%\\OpsRuntime\\nuget",
-    "echo Nastepnie: Manage Packages -^> Restore",
-    "pause"
-  ].join("\r\n");
+    "<Project>",
+    "  <PropertyGroup>",
+    "    <RestorePackagesPath>$(MSBuildThisFileDirectory).packages</RestorePackagesPath>",
+    `    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)${feed}</RestoreAdditionalProjectSources>`,
+    "  </PropertyGroup>",
+    "</Project>",
+    ""
+  ].join("\n");
+}
+
+async function writeGlobalPackagesCache(outZip, prefix, nupkgBuf, version) {
+  const packageId = OPS_RUNTIME_GATE_NS;
+  const idLower = packageId.toLowerCase();
+  const base = `${prefix}.packages/${idLower}/${version}`;
+  const nupkgFile = `${idLower}.${version}.nupkg`;
+
+  outZip.file(`${base}/${nupkgFile}`, nupkgBuf);
+
+  const inner = await JSZip.loadAsync(nupkgBuf);
+  for (const [path, entry] of Object.entries(inner.files)) {
+    if (entry.dir) continue;
+    const target = path === `${packageId}.nuspec` ? `${idLower}.nuspec` : path;
+    outZip.file(`${base}/${target}`, await entry.async("uint8array"));
+  }
 }
 
 function buildProjectSetEnvCmd(cfg) {
@@ -2792,12 +2793,11 @@ async function patchUiPathProjectAndDownload() {
     if (bundle.nupkgFlatPath) {
       outZip.file(bundle.nupkgFlatPath, nupkgBuf);
     }
+    await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
     outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
     outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
+    outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
     outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
-    if (bundle.feedSetupCmdPath) {
-      outZip.file(bundle.feedSetupCmdPath, buildProjectFeedSetupCmd(cfg.version, bundle.feedPath));
-    }
     if (bundle.cmdPath) {
       outZip.file(bundle.cmdPath, buildProjectSetEnvCmd(cfg));
     }

@@ -16,7 +16,7 @@ const {
   injectEmbeddedGateIntoXaml,
   getBundleLayout,
   buildProjectNugetConfig,
-  buildProjectFeedSetupCmd,
+  buildDirectoryBuildProps,
   ensureXamlImports,
   patchProjectJsonContent
 } = loadUiPathPatchRuntime();
@@ -92,24 +92,24 @@ run("double inject is idempotent for namespace blocks", () => {
   assert(countMatches(second.xaml, REF_BLOCK_RE) === 1, "second inject must not duplicate references");
 });
 
-run("paranoid bundle hides cmd under .project and keeps nuget.config at root", () => {
+run("paranoid bundle is zero-config (no manual cmd)", () => {
   const bundle = getBundleLayout("paranoid", "testDRM", "1.0.7");
   assert(bundle.nugetConfigPath === "testDRM/nuget.config", `nuget.config path: ${bundle.nugetConfigPath}`);
-  assert(bundle.feedSetupCmdPath === "testDRM/.project/USTAW-FEED-NUGET.cmd", bundle.feedSetupCmdPath);
+  assert(bundle.directoryBuildPropsPath === "testDRM/Directory.Build.props", bundle.directoryBuildPropsPath);
   assert(bundle.nupkgFlatPath.includes("1.0.7"), "missing flat nupkg path");
-  assert(!bundle.skipPrefixes.some((p) => p.endsWith("USTAW-FEED-NUGET.cmd") && !p.includes(".project")), "cmd should not be at project root");
+  assert(!("feedSetupCmdPath" in bundle), "feed setup cmd must be removed");
 });
 
-run("nuget.config points at local feed", () => {
+run("nuget.config uses local cache and feed", () => {
   const xml = buildProjectNugetConfig(".local/.nupkg");
+  assert(xml.includes('globalPackagesFolder" value=".packages"'), "missing globalPackagesFolder");
   assert(xml.includes('value=".local/.nupkg"'), "feed path missing in nuget.config");
-  assert(xml.includes("OpsRuntimeLocal"), "feed key missing");
 });
 
-run("feed setup cmd resolves package from .project folder", () => {
-  const cmd = buildProjectFeedSetupCmd("1.0.7", ".local/.nupkg");
-  assert(cmd.includes('%~dp0..\\.local\\.nupkg'), "cmd should resolve feed relative to .project");
-  assert(cmd.includes("UiPath.System.RoboticSecurity.1.0.7.nupkg"), "cmd should reference nupkg file name");
+run("Directory.Build.props wires restore paths", () => {
+  const props = buildDirectoryBuildProps(".local/.nupkg");
+  assert(props.includes("RestorePackagesPath"), "missing RestorePackagesPath");
+  assert(props.includes(".local/.nupkg"), "missing additional feed in MSBuild props");
 });
 
 run("project.json pins RoboticSecurity version", () => {

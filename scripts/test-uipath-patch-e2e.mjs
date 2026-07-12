@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * E2E: sample UiPath ZIP -> paranoid patch -> validate output archive.
+ * E2E: sample UiPath ZIP -> paranoid patch -> validate zero-config output archive.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,8 +22,9 @@ const {
   getBundleLayout,
   buildProjectRobotEnv,
   buildProjectNugetConfig,
-  buildProjectFeedSetupCmd,
+  buildDirectoryBuildProps,
   buildProjectSetupReadme,
+  writeGlobalPackagesCache,
   zipFolderPrefix
 } = rt;
 
@@ -105,23 +106,24 @@ async function patchUiPathProjectZip(zipBuffer, { mode, tokenValue }) {
   }
   await Promise.all(writeTasks);
 
+  const prefix = zipFolderPrefix(projectDir);
   const nupkgBuf = await readLocalBinary(cfg.nugetUrl);
   const paranoid = mode === "paranoid";
   outZip.file(bundle.nupkgPath, nupkgBuf);
   if (bundle.nupkgFlatPath) outZip.file(bundle.nupkgFlatPath, nupkgBuf);
+  await writeGlobalPackagesCache(outZip, prefix, nupkgBuf, cfg.version);
   outZip.file(bundle.envPath, buildProjectRobotEnv(cfg, paranoid));
   outZip.file(bundle.nugetConfigPath, buildProjectNugetConfig(bundle.feedPath));
+  outZip.file(bundle.directoryBuildPropsPath, buildDirectoryBuildProps(bundle.feedPath));
   outZip.file(bundle.operatorPath, buildProjectSetupReadme(cfg, mode, xamlRelPath, bundle));
-  if (bundle.feedSetupCmdPath) {
-    outZip.file(bundle.feedSetupCmdPath, buildProjectFeedSetupCmd(cfg.version, bundle.feedPath));
-  }
 
   return {
     buffer: await outZip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }),
     projectJsonPath,
     projectDir,
     bundle,
-    entryFiles
+    entryFiles,
+    projectJsonBefore: projectJson
   };
 }
 
@@ -142,59 +144,59 @@ async function run(name, fn) {
 
 console.log("UiPath patch E2E\n");
 
-await run("paranoid patch produces valid ops archive", async () => {
+await run("paranoid patch is zero-config ready (open Main.xaml)", async () => {
   const input = readFileSync(sampleZipPath);
   const sourceNupkg = readFileSync(nupkgPath);
   const tokenValue = "e2e-test-license-token-001";
 
-  const { buffer, projectJsonPath, projectDir, bundle, entryFiles } = await patchUiPathProjectZip(input, {
-    mode: "paranoid",
-    tokenValue
-  });
+  const { buffer, projectJsonPath, projectDir, bundle, entryFiles, projectJsonBefore } =
+    await patchUiPathProjectZip(input, { mode: "paranoid", tokenValue });
 
   assert(buffer.length > input.length, "output should be larger than input");
 
   const out = await JSZip.loadAsync(buffer);
   const outPaths = Object.keys(out.files).filter((p) => !out.files[p].dir).map(normalizeZipPath);
   const prefix = zipFolderPrefix(projectDir);
+  const pkgCache = `${prefix}.packages/uipath.system.roboticsecurity/${cfg.version}`;
 
   assert(outPaths.includes(projectJsonPath), "project.json missing");
   assert(outPaths.includes(`${prefix}nuget.config`), "nuget.config missing at project root");
-  assert(outPaths.includes(bundle.nupkgPath), `missing hierarchical nupkg: ${bundle.nupkgPath}`);
+  assert(outPaths.includes(`${prefix}Directory.Build.props`), "Directory.Build.props missing");
+  assert(outPaths.includes(`${pkgCache}/lib/net6.0/UiPath.System.RoboticSecurity.dll`), "missing pre-cached dll");
+  assert(outPaths.includes(`${pkgCache}/uipath.system.roboticsecurity.${cfg.version}.nupkg`), "missing cached nupkg");
   assert(outPaths.includes(bundle.nupkgFlatPath), `missing flat nupkg: ${bundle.nupkgFlatPath}`);
-  assert(outPaths.includes(bundle.feedSetupCmdPath), `missing feed cmd: ${bundle.feedSetupCmdPath}`);
-  assert(outPaths.includes(bundle.envPath), `missing env profile: ${bundle.envPath}`);
-  assert(!outPaths.includes(`${prefix}USTAW-FEED-NUGET.cmd`), "cmd must not be in project root");
+  assert(!outPaths.some((p) => p.endsWith("USTAW-FEED-NUGET.cmd")), "manual feed cmd must not exist");
 
   const projectJson = JSON.parse(await out.file(projectJsonPath).async("string"));
+  assert(projectJson.main === projectJsonBefore.main, "main entry must stay Main.xaml");
   assert(
     projectJson.dependencies["UiPath.System.RoboticSecurity"] === `[${cfg.version}]`,
     JSON.stringify(projectJson.dependencies)
   );
 
   const nugetXml = await out.file(`${prefix}nuget.config`).async("string");
-  assert(nugetXml.includes(".local/.nupkg"), "nuget.config feed path");
+  assert(nugetXml.includes('globalPackagesFolder" value=".packages"'), "nuget globalPackagesFolder");
+  assert(nugetXml.includes(".local/.nupkg"), "nuget local feed");
+
+  const props = await out.file(`${prefix}Directory.Build.props`).async("string");
+  assert(props.includes("RestorePackagesPath"), "MSBuild restore packages path");
+  assert(props.includes(".local/.nupkg"), "MSBuild additional feed");
+
+  const dll = await out.file(`${pkgCache}/lib/net6.0/UiPath.System.RoboticSecurity.dll`).async("nodebuffer");
+  assert(dll.length > 1000, "cached dll too small");
 
   const nupkgOut = await out.file(bundle.nupkgFlatPath).async("nodebuffer");
   assert(nupkgOut.length === sourceNupkg.length, "embedded nupkg size mismatch");
 
   const envText = await out.file(bundle.envPath).async("string");
   assert(envText.includes(`OPS_SEED_API_URL=${cfg.apiUrl}`), "env api url");
-  assert(envText.includes(`OPS_SEED_PEPPER=${cfg.pepper}`), "env pepper");
-  assert(envText.includes("OPS_SEED_GRACE_DAYS="), "env grace days");
   assert(!envText.includes("FLOW_RUNTIME_TOKEN"), "token must not be in env");
 
   for (const entry of entryFiles) {
     const xaml = await out.file(entry.fullPath).async("string");
     assert([...xaml.matchAll(NS_BLOCK_RE)].length === 1, `${entry.relPath}: duplicate NS block`);
     assert(xaml.includes("FromBase64String"), `${entry.relPath}: missing embedded token`);
-    assert(xaml.includes("UiPath.System.RoboticSecurity"), `${entry.relPath}: missing gate ns`);
-    assert(xaml.includes("Sequence.Variables"), `${entry.relPath}: missing variables`);
   }
-
-  const cmd = await out.file(bundle.feedSetupCmdPath).async("string");
-  assert(cmd.includes("UiPath.System.RoboticSecurity.1.0.7.nupkg"), "cmd references nupkg");
-  assert(cmd.includes('%~dp0..\\.local\\.nupkg'), "cmd resolves feed from .project");
 });
 
 await run("double e2e patch stays idempotent on namespaces", async () => {

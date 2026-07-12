@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import vm from "node:vm";
+import JSZip from "jszip";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -34,6 +35,7 @@ export function loadUiPathPatchRuntime(appJsPath = join(root, "docs/app.js")) {
   const sandbox = {
     console,
     TextEncoder,
+    JSZip,
     btoa: (binary) => Buffer.from(binary, "binary").toString("base64")
   };
 
